@@ -113,10 +113,12 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  // Run on all routes except Next's static assets, the favicon, PWA icons, and
-  // the manifest — those are served without the gate so the login screen and
-  // installed-app shell can load.
+  // Run on all routes except Next's static assets, the favicon, PWA icons, the
+  // manifest, and the service worker — those are served without the gate so the
+  // login screen and installed-app shell can load. The service worker in
+  // particular must never receive a login *redirect* (browsers reject a
+  // redirected SW script), so it stays public; it carries no secrets.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|icon.svg|icon-192.png|icon-512.png|apple-touch-icon.png).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|icon.svg|icon-192.png|icon-512.png|apple-touch-icon.png|sw.js).*)",
   ],
 };

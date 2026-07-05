@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Space_Grotesk, Inter } from "next/font/google";
 import "./globals.css";
+import RegisterSW from "./components/RegisterSW";
 
 // Self-hosted at build time by next/font, so no external font request at runtime
 // (keeps CSP font-src 'self').
@@ -42,7 +43,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${display.variable} ${body.variable}`}>
-      <body>{children}</body>
+      <body>
+        <RegisterSW />
+        {children}
+      </body>
     </html>
   );
 }
