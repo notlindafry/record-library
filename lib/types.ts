@@ -24,6 +24,8 @@ export interface Record {
   owner: string;
   /** Public Discogs release page, when derivable. */
   discogsUrl?: string;
+  /** Discogs cover image URL (i.discogs.com CDN), when available. */
+  coverImage?: string;
 }
 
 /**

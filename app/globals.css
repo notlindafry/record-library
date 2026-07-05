@@ -454,6 +454,16 @@ button {
   background: var(--bg);
 }
 
+/* Real Discogs cover art: a square sleeve in the same slot as the placeholder. */
+.cover-art {
+  border-radius: var(--radius);
+  object-fit: cover;
+  background: var(--surface);
+}
+.cover-art::after {
+  content: none;
+}
+
 .card-body {
   min-width: 0;
   flex: 1;

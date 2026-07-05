@@ -61,6 +61,8 @@ interface DiscogsBasicInformation {
   formats?: DiscogsFormat[];
   genres?: string[];
   styles?: string[];
+  cover_image?: string;
+  thumb?: string;
 }
 interface DiscogsCollectionItem {
   id?: number;
@@ -124,6 +126,28 @@ function stripDisambiguation(name: string): string {
   return name.replace(/\s+\(\d+\)$/, "").trim();
 }
 
+/**
+ * Only accept cover-image URLs served from the Discogs image CDN over HTTPS.
+ * This keeps the browser's `img-src` allow-list tight (see proxy.ts) and stops
+ * arbitrary URLs in the API response from being rendered as images. Discogs
+ * `cover_image`/`thumb` are pre-signed `i.discogs.com` URLs.
+ */
+function cleanImageUrl(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > 500) return "";
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return "";
+  }
+  if (url.protocol !== "https:") return "";
+  const host = url.hostname.toLowerCase();
+  if (host !== "i.discogs.com" && !host.endsWith(".discogs.com")) return "";
+  return url.toString();
+}
+
 function cleanList(values: unknown, maxItems = 25): string[] {
   if (!Array.isArray(values)) return [];
   const out: string[] = [];
@@ -157,6 +181,10 @@ function mapRelease(item: DiscogsCollectionItem, owner: string): ShelfRecord | n
 
   const year = typeof info.year === "number" && info.year > 0 ? info.year : null;
 
+  // Prefer the full cover; fall back to the thumbnail. Both are validated to a
+  // Discogs CDN host so the browser only ever loads images from i.discogs.com.
+  const coverImage = cleanImageUrl(info.cover_image) || cleanImageUrl(info.thumb);
+
   return {
     id: String(releaseId),
     artist: artist || "Unknown Artist",
@@ -168,6 +196,7 @@ function mapRelease(item: DiscogsCollectionItem, owner: string): ShelfRecord | n
     styles: cleanList(info.styles),
     owner,
     discogsUrl: `https://www.discogs.com/release/${releaseId}`,
+    ...(coverImage ? { coverImage } : {}),
   };
 }
 

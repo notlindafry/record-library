@@ -10,8 +10,8 @@ interface RecordCardProps {
 
 /**
  * A single record: artist, title, format/year/label, style + genre tags, an
- * owner tag, and an optional one-line reason. Cover art is not fetched from
- * Discogs in this build (see README) — a styled vinyl placeholder stands in.
+ * owner tag, and an optional one-line reason. When Discogs supplies cover art
+ * it is shown; otherwise a styled vinyl placeholder stands in.
  */
 export default function RecordCard({ record, reason, onSimilar }: RecordCardProps) {
   const metaParts = [record.format, record.year ? String(record.year) : "", record.label]
@@ -25,7 +25,21 @@ export default function RecordCard({ record, reason, onSimilar }: RecordCardProp
 
   return (
     <article className="card">
-      <div className="cover" aria-hidden />
+      {record.coverImage ? (
+        // eslint-disable-next-line @next/next/no-img-element -- remote Discogs
+        // CDN images; next/image optimization is not wired for off-origin hosts.
+        <img
+          className="cover cover-art"
+          src={record.coverImage}
+          alt={`${record.artist} — ${record.title} cover`}
+          width={58}
+          height={58}
+          loading="lazy"
+          decoding="async"
+        />
+      ) : (
+        <div className="cover" aria-hidden />
+      )}
       <div className="card-body">
         <div className="card-artist">{record.artist}</div>
         <div className="card-title">{record.title}</div>
