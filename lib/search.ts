@@ -14,15 +14,19 @@
  * Everything runs server-side. The Anthropic key never reaches the browser.
  */
 
+import { createHash } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import type { QuerySpec, Record as ShelfRecord, SearchResult } from "@/lib/types";
 import { MOODS, presentGenres, presentOwners, presentStyles } from "@/lib/vocab";
 import { getMoodIndex, type MoodIndex } from "@/lib/moods";
+import { isRedisConfigured, redis } from "@/lib/redis";
 
 const MAX_QUERY_LEN = 300;
 const CANDIDATE_LIMIT = 60; // records handed to the rerank step
 const RESULT_LIMIT = 30; // results returned to the client
 const STYLE_HINT_LIMIT = 400; // cap on styles sent to the understand step
+const QSPEC_VERSION = 1; // bump when the understand-step prompt changes
+const QSPEC_TTL_SECONDS = 3 * 24 * 60 * 60; // ~3 days; version+model in the key protect correctness
 
 function model(): string {
   return process.env.ANTHROPIC_MODEL?.trim() || "claude-haiku-4-5";
@@ -92,6 +96,54 @@ function buildUnderstandSystem(records: ShelfRecord[]): string {
     `OWNERS: ${owners.join(", ") || "(none)"}`,
     `MOODS: ${MOODS.join(", ")}`,
   ].join("\n");
+}
+
+/**
+ * Cache key for a parsed QuerySpec. The prompt version and model live in the key
+ * so a prompt change or model swap never serves a stale parse; the query is
+ * normalized (lowercased — it is already trimmed, whitespace-collapsed, and
+ * capped by `sanitizeQuery`) and hashed, so raw query strings are not stored as
+ * keys.
+ */
+function qspecKey(query: string): string {
+  const hash = createHash("sha256").update(query.toLowerCase()).digest("hex").slice(0, 32);
+  return `vs:qspec:v${QSPEC_VERSION}:${model()}:${hash}`;
+}
+
+/**
+ * Understand step with a Redis read-through cache (feature 3). On a hit we skip
+ * the Claude parse entirely; on a miss we parse and cache. Fails open: any Redis
+ * error runs the live parse. Only the server writes entries, and only after its
+ * own parse, so there is no client-controlled path into the cache.
+ */
+async function understandCached(
+  client: Anthropic,
+  query: string,
+  records: ShelfRecord[],
+): Promise<QuerySpec> {
+  const key = qspecKey(query);
+
+  if (isRedisConfigured()) {
+    try {
+      const cached = await redis().get<QuerySpec>(key);
+      if (cached) return normalizeSpec(cached);
+    } catch (err) {
+      console.error("[search] qspec cache read failed:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  const spec = await understandWithClaude(client, query, records);
+
+  if (isRedisConfigured()) {
+    // Fire-and-forget: don't make the response wait on the cache write.
+    redis()
+      .set(key, spec, { ex: QSPEC_TTL_SECONDS })
+      .catch((err) =>
+        console.error("[search] qspec cache write failed:", err instanceof Error ? err.message : err),
+      );
+  }
+
+  return spec;
 }
 
 async function understandWithClaude(
@@ -360,7 +412,7 @@ export async function searchRecords(
   if (aiSearchEnabled() && query) {
     client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     try {
-      spec = await understandWithClaude(client, query, records);
+      spec = await understandCached(client, query, records);
     } catch {
       spec = understandWithKeywords(query, records);
       client = null; // fall through to non-AI path for reasons

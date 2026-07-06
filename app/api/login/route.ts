@@ -5,7 +5,7 @@ import {
   isAuthConfigured,
   sessionCookieOptions,
 } from "@/lib/auth";
-import { checkRateLimit, clientIpFromHeaders, sweepExpired } from "@/lib/ratelimit";
+import { clientIpFromHeaders, enforceRateLimit, sweepExpired } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const ip = clientIpFromHeaders(request.headers);
-  const limit = checkRateLimit(ip, { namespace: "login", limit: 5, windowMs: 60_000 });
+  const limit = await enforceRateLimit(ip, { namespace: "login", limit: 5, windowMs: 60_000 });
   if (!limit.allowed) {
     return NextResponse.json(
       { error: "Too many attempts. Please wait and try again." },

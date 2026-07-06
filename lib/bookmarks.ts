@@ -8,8 +8,8 @@
  * is a single `hgetall`; ordering by `addedAt` happens after reading.
  */
 
-import { Redis } from "@upstash/redis";
 import { parseStringArray } from "@/lib/request"; // existing bounded-array helper
+import { isRedisConfigured, redis } from "@/lib/redis";
 import type { Bookmark, Record as ShelfRecord } from "@/lib/types";
 
 const KEY = "vibe-shelf:bookmarks";
@@ -17,16 +17,7 @@ const MAX_BOOKMARKS = 500; // bound growth / abuse (rules 3 and 4)
 
 /** True when Upstash credentials are present in the environment. */
 export function isBookmarksConfigured(): boolean {
-  return Boolean(
-    (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) ||
-      (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN),
-  );
-}
-
-let client: Redis | null = null;
-function redis(): Redis {
-  if (!client) client = Redis.fromEnv(); // reads UPSTASH_* or falls back to KV_REST_API_*
-  return client;
+  return isRedisConfigured();
 }
 
 // --- validation: never trust the client (rule 4) ---
