@@ -29,7 +29,9 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 
 // Paths that must be reachable without a session.
 const PUBLIC_PATHS = new Set<string>(["/login"]);
-const PUBLIC_API_PREFIXES = ["/api/login", "/api/logout"];
+// /api/cron is authorized by the cron shared secret instead of a session (its
+// route checks the secret and fails closed); Vercel Cron carries no cookie.
+const PUBLIC_API_PREFIXES = ["/api/login", "/api/logout", "/api/cron"];
 
 function isPublicPath(pathname: string): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getRole } from "@/lib/request";
-import { checkRateLimit, clientIpFromHeaders, sweepExpired } from "@/lib/ratelimit";
+import { clientIpFromHeaders, enforceRateLimit, sweepExpired } from "@/lib/ratelimit";
 import {
   addBookmark,
   isBookmarksConfigured,
@@ -22,7 +22,7 @@ async function guard(
     return NextResponse.json({ error: "Bookmarks are not configured" }, { status: 503 });
   }
   const ip = clientIpFromHeaders(request.headers);
-  const rl = checkRateLimit(ip, { namespace, limit, windowMs: 60_000 });
+  const rl = await enforceRateLimit(ip, { namespace, limit, windowMs: 60_000 });
   if (!rl.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please slow down." },

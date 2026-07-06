@@ -21,12 +21,18 @@
  */
 
 import { HttpError, fetchJson, sleep } from "@/lib/http";
+import { isRedisConfigured, redis } from "@/lib/redis";
 import type { Record as ShelfRecord } from "@/lib/types";
 
 const DISCOGS_API = "https://api.discogs.com";
 const PER_PAGE = 100;
 const MAX_PAGES = 100; // safety cap: 100 pages * 100 = 10k records
 const PARTIAL_MARKER = "some records could not be loaded";
+
+// Redis keys (see lib spec §0.3). The blob holds only public Discogs metadata.
+const COLLECTION_KEY = "vs:collection:merged";
+const LOCK_KEY = "vs:lock:collection";
+const LOCK_TTL_SECONDS = 30; // auto-expires so a crashed refresh can't wedge the lock
 
 interface AccountConfig {
   username: string;
@@ -38,6 +44,13 @@ interface CachedCollection {
   records: ShelfRecord[];
   partial: boolean;
   expiresAt: number;
+}
+
+/** Shape persisted in Redis. Public metadata only — no tokens, no secrets. */
+interface CollectionBlob {
+  fetchedAt: number;
+  records: ShelfRecord[];
+  partial: boolean;
 }
 
 // ---- Discogs response shapes (only the fields we read) ----
@@ -308,31 +321,130 @@ function describeError(reason: unknown): string {
 }
 
 /**
- * Return the merged collection, served from cache when fresh. Concurrent callers
- * during a cache miss share a single in-flight load.
+ * Return the merged collection. Three layers, each failing open to the next:
+ *   1. In-process cache (fast, per instance).
+ *   2. Redis blob shared across instances. Served even when slightly stale; a
+ *      background refresh is kicked so the next read is fresh, and Vercel Cron
+ *      also refreshes on a schedule.
+ *   3. A live Discogs fetch (cold miss, or Redis unconfigured/unreachable).
+ * Any Redis error is logged and drops through to the live path, so the catalogue
+ * always loads (fail open, feature spec §0.4).
  */
 export async function getCollection(): Promise<{ records: ShelfRecord[]; partial: boolean }> {
   const now = Date.now();
+  const ttl = cacheTtlMs();
+
+  // L1: in-process cache.
   if (cache && cache.expiresAt > now) {
     return { records: cache.records, partial: cache.partial };
   }
 
-  if (!inFlight) {
-    inFlight = loadCollection()
-      .then((result) => {
-        cache = result;
-        return result;
-      })
-      .finally(() => {
-        inFlight = null;
-      });
+  // L2: Redis, shared across instances. Fail open on any error.
+  if (isRedisConfigured()) {
+    try {
+      const blob = await redis().get<CollectionBlob>(COLLECTION_KEY);
+      if (blob && Array.isArray(blob.records)) {
+        const fetchedAt = typeof blob.fetchedAt === "number" ? blob.fetchedAt : 0;
+        cache = { records: blob.records, partial: Boolean(blob.partial), expiresAt: fetchedAt + ttl };
+        // Stale-while-revalidate: past the TTL, serve it now but refresh in the
+        // background (cron also refreshes; this self-heals between cron runs).
+        if (now - fetchedAt >= ttl) triggerBackgroundRefresh();
+        return { records: blob.records, partial: Boolean(blob.partial) };
+      }
+    } catch (err) {
+      console.error(
+        "[discogs] Redis read failed; falling back to live fetch:",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
+  // L3: live fetch (cold miss or Redis down). Concurrent callers share one load.
+  if (!inFlight) {
+    inFlight = refreshCollection().finally(() => {
+      inFlight = null;
+    });
+  }
   const result = await inFlight;
   return { records: result.records, partial: result.partial };
 }
 
-/** Test/ops hook: drop the cache so the next read re-fetches. */
+/** Kick a non-blocking refresh, deduped against any in-flight load. */
+function triggerBackgroundRefresh(): void {
+  if (inFlight) return;
+  inFlight = refreshCollection()
+    .catch((err) => {
+      console.error(
+        "[discogs] background refresh failed:",
+        err instanceof Error ? err.message : err,
+      );
+      // Keep serving whatever we last had rather than surfacing an error here.
+      return cache ?? { records: [], partial: false, expiresAt: 0 };
+    })
+    .finally(() => {
+      inFlight = null;
+    });
+}
+
+/**
+ * Fetch every account, map, merge, then write the result to Redis and the
+ * in-process cache. Exported so the Vercel Cron route can warm the cache on a
+ * schedule. A short Redis lock keeps a cold-start stampede from fanning out into
+ * many concurrent Discogs paginates; it is best-effort and always fails open to a
+ * direct fetch.
+ */
+export async function refreshCollection(): Promise<CachedCollection> {
+  const haveRedis = isRedisConfigured();
+  let lockAcquired = false;
+
+  if (haveRedis) {
+    try {
+      const res = await redis().set(LOCK_KEY, "1", { nx: true, ex: LOCK_TTL_SECONDS });
+      lockAcquired = res === "OK";
+      if (!lockAcquired) {
+        // Another instance is refreshing. Wait briefly and reuse its result.
+        await sleep(1_500);
+        const blob = await redis().get<CollectionBlob>(COLLECTION_KEY).catch(() => null);
+        if (blob && Array.isArray(blob.records)) {
+          const result: CachedCollection = {
+            records: blob.records,
+            partial: Boolean(blob.partial),
+            expiresAt: (typeof blob.fetchedAt === "number" ? blob.fetchedAt : Date.now()) + cacheTtlMs(),
+          };
+          cache = result;
+          return result;
+        }
+        // Nothing published yet; fetch ourselves rather than block (fail open).
+      }
+    } catch (err) {
+      console.error("[discogs] lock step failed:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  try {
+    const loaded = await loadCollection();
+    cache = loaded;
+    if (haveRedis) {
+      const blob: CollectionBlob = {
+        fetchedAt: Date.now(),
+        records: loaded.records,
+        partial: loaded.partial,
+      };
+      try {
+        await redis().set(COLLECTION_KEY, blob);
+      } catch (err) {
+        console.error("[discogs] Redis write failed:", err instanceof Error ? err.message : err);
+      }
+    }
+    return loaded;
+  } finally {
+    if (lockAcquired) {
+      await redis().del(LOCK_KEY).catch(() => undefined); // lock also auto-expires
+    }
+  }
+}
+
+/** Test/ops hook: drop the in-process cache so the next read re-fetches. */
 export function clearCollectionCache(): void {
   cache = null;
 }

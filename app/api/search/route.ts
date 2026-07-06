@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getCollection } from "@/lib/discogs";
 import { searchRecords } from "@/lib/search";
-import { checkRateLimit, clientIpFromHeaders, sweepExpired } from "@/lib/ratelimit";
+import { clientIpFromHeaders, enforceRateLimit, sweepExpired } from "@/lib/ratelimit";
 import { parseStringArray } from "@/lib/request";
 import type { SearchResponse } from "@/lib/types";
 
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   sweepExpired();
 
   const ip = clientIpFromHeaders(request.headers);
-  const limit = checkRateLimit(ip, { namespace: "search", limit: 30, windowMs: 60_000 });
+  const limit = await enforceRateLimit(ip, { namespace: "search", limit: 30, windowMs: 60_000 });
   if (!limit.allowed) {
     return NextResponse.json(
       { error: "Too many searches. Please slow down." },

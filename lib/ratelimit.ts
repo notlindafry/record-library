@@ -1,16 +1,21 @@
 /**
- * Per-IP rate limiting (rule 3).
+ * Rate limiting (rule 3).
  *
- * TRADEOFF CALLOUT (rule 9): this limiter is in-memory and best-effort per
- * serverless instance. Limits reset on cold starts and are NOT shared across
- * concurrent instances, so this satisfies "rate limiting" but not "strict global
- * limits." For robust global limits, back this with Upstash Redis
- * (UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN).
+ * Two layers, exposed through `enforceRateLimit`:
+ *   1. When Upstash is configured, a Redis-backed sliding-window limiter
+ *      (`@upstash/ratelimit`) enforces limits GLOBALLY across serverless
+ *      instances and cold starts.
+ *   2. When Redis is absent OR a Redis call fails, we fall back to the in-memory
+ *      fixed-window limiter below. It is best-effort per instance, but it means a
+ *      Redis outage degrades protection rather than removing it (fail open WITH a
+ *      fallback), and login is never fully unprotected.
  *
- * SECURITY TODO: Upstash-backed global rate limiting is not wired. The env var
- * contract is documented in .env.example; wiring it would replace the in-memory
- * Map below with a Redis fixed-window counter using the same check() signature.
+ * The in-memory limiter remains the fallback implementation; callers should use
+ * the async `enforceRateLimit` rather than `checkRateLimit` directly.
  */
+
+import { Ratelimit } from "@upstash/ratelimit";
+import { isRedisConfigured, redis } from "@/lib/redis";
 
 interface Bucket {
   count: number;
@@ -89,4 +94,60 @@ export function clientIpFromHeaders(headers: Headers): string {
     if (first) return first;
   }
   return headers.get("x-real-ip")?.trim() || "unknown";
+}
+
+// ---- Redis-backed global limiter (@upstash/ratelimit) ----
+
+type Duration = Parameters<typeof Ratelimit.slidingWindow>[1];
+
+// One Ratelimit instance per (namespace, limit, window), constructed lazily and
+// reused. @upstash/ratelimit manages its own keys under the `prefix`.
+const limiters = new Map<string, Ratelimit>();
+
+function getLimiter(namespace: string, limit: number, windowSeconds: number): Ratelimit {
+  const cacheKey = `${namespace}:${limit}:${windowSeconds}`;
+  let limiter = limiters.get(cacheKey);
+  if (!limiter) {
+    limiter = new Ratelimit({
+      redis: redis(),
+      limiter: Ratelimit.slidingWindow(limit, `${windowSeconds} s` as Duration),
+      prefix: `vs:rl:${namespace}`,
+      analytics: false,
+    });
+    limiters.set(cacheKey, limiter);
+  }
+  return limiter;
+}
+
+/**
+ * Enforce a rate limit, globally when Redis is available and per-instance
+ * otherwise. On any Redis error it falls back to the in-memory limiter (fail open
+ * WITH a fallback), logging server-side. Drop-in for `checkRateLimit`, but async.
+ *
+ * The identifier should be a client IP (`clientIpFromHeaders`) or, for
+ * authenticated writes, the session subject.
+ */
+export async function enforceRateLimit(
+  identifier: string,
+  options: RateLimitOptions,
+): Promise<RateLimitResult> {
+  if (isRedisConfigured()) {
+    try {
+      const windowSeconds = Math.max(1, Math.round(options.windowMs / 1000));
+      const limiter = getLimiter(options.namespace, options.limit, windowSeconds);
+      const res = await limiter.limit(identifier);
+      return {
+        allowed: res.success,
+        retryAfterSeconds: res.success ? 0 : Math.max(1, Math.ceil((res.reset - Date.now()) / 1000)),
+        remaining: Math.max(0, res.remaining),
+      };
+    } catch (err) {
+      console.error(
+        "[ratelimit] Redis limiter failed; falling back to in-memory:",
+        err instanceof Error ? err.message : err,
+      );
+      // Fall through to the in-memory limiter so protection is degraded, not gone.
+    }
+  }
+  return checkRateLimit(identifier, options);
 }
