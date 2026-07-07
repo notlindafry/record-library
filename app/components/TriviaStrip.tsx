@@ -4,19 +4,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchInsights } from "@/lib/api";
 import type { Insight, InsightAction } from "@/lib/types";
 
-const AUTO_ADVANCE_MS = 7000;
+const AUTO_ADVANCE_MS = 4500;
 const SWIPE_THRESHOLD_PX = 40;
 const ACTION_TYPES = new Set<InsightAction["type"]>(["genre", "style", "owner", "search"]);
 
 /**
- * The home-view insights carousel (feature 6). Fetches the cached batch once,
- * holds it in state, and rotates through the cards entirely client-side — moving
- * between cards costs nothing (never calls Claude). All card text renders as
- * escaped React text; a tap-to-search action is re-validated here before it can
- * dispatch. Hides itself (renders nothing) while loading or when there is nothing
- * usable, rather than showing an empty frame.
+ * The home-view trivia strip (feature 6, rebalanced layout). A full-width
+ * horizontal strip — leading disc icon, a text block (tag / title / body), and
+ * the rotation controls grouped on the right — that rotates through the cached
+ * insights batch entirely client-side (never calls Claude). The first card is the
+ * overview; the rest are trivia. All text renders as escaped React text; a
+ * tap-to-search action is re-validated here before dispatch. Hides itself while
+ * loading or when there is nothing usable.
  */
-export default function InsightsCarousel({
+export default function TriviaStrip({
   onAction,
 }: {
   onAction?: (action: InsightAction) => void;
@@ -50,9 +51,8 @@ export default function InsightsCarousel({
     [count],
   );
 
-  // Auto-advance, paused on hover/focus/touch and disabled for users who prefer
-  // reduced motion. Including `index` in the deps resets the countdown after a
-  // manual move, so it never jumps immediately.
+  // Auto-advance, paused on hover/focus/touch and disabled for reduced-motion.
+  // `index` in the deps resets the countdown after a manual move.
   useEffect(() => {
     if (paused || count <= 1) return;
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
@@ -78,7 +78,7 @@ export default function InsightsCarousel({
 
   return (
     <section
-      className="insights"
+      className="trivia"
       aria-label="Collection insights"
       aria-roledescription="carousel"
       onMouseEnter={() => setPaused(true)}
@@ -88,23 +88,16 @@ export default function InsightsCarousel({
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
-      <div className="insights-head">
-        <span className="insights-eyebrow">On the shelf</span>
-        {count > 1 && (
-          <span className="insights-progress" aria-hidden>
-            {index + 1} / {count}
-          </span>
-        )}
-      </div>
+      <div className="trivia-icon" aria-hidden />
 
-      <div className="insight-card">
-        {current.kind && <span className="insight-kind">{current.kind}</span>}
-        <h3 className="insight-title">{current.title}</h3>
-        <p className="insight-body">{current.body}</p>
+      <div className="trivia-text">
+        {current.kind && <span className="trivia-tag">{current.kind}</span>}
+        <div className="trivia-title">{current.title}</div>
+        <p className="trivia-body">{current.body}</p>
         {action && onAction && (
           <button
             type="button"
-            className="insight-action linkish"
+            className="trivia-action linkish"
             onClick={() => onAction(action)}
           >
             {actionLabel(action)}
@@ -113,35 +106,40 @@ export default function InsightsCarousel({
       </div>
 
       {count > 1 && (
-        <div className="insights-nav">
-          <button
-            type="button"
-            className="insights-arrow"
-            aria-label="Previous insight"
-            onClick={() => go(index - 1)}
-          >
-            ‹
-          </button>
-          <div className="insights-dots">
+        <div className="trivia-controls">
+          <div className="trivia-dots">
             {insights.map((_, i) => (
               <button
                 key={i}
                 type="button"
-                className={`insights-dot${i === index ? " active" : ""}`}
+                className={`trivia-dot${i === index ? " active" : ""}`}
                 aria-label={`Go to insight ${i + 1}`}
                 aria-current={i === index}
                 onClick={() => go(i)}
               />
             ))}
           </div>
-          <button
-            type="button"
-            className="insights-arrow"
-            aria-label="Next insight"
-            onClick={() => go(index + 1)}
-          >
-            ›
-          </button>
+          <span className="trivia-counter" aria-hidden>
+            {index + 1} / {count}
+          </span>
+          <div className="trivia-arrows">
+            <button
+              type="button"
+              className="trivia-arrow"
+              aria-label="Previous insight"
+              onClick={() => go(index - 1)}
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              className="trivia-arrow"
+              aria-label="Next insight"
+              onClick={() => go(index + 1)}
+            >
+              ›
+            </button>
+          </div>
         </div>
       )}
     </section>

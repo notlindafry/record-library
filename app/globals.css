@@ -33,7 +33,7 @@
 
   --radius: 12px;
   --radius-sm: 8px;
-  --maxw: 1120px;
+  --maxw: 1000px;
 
   --font-display: "Space Grotesk", system-ui, sans-serif;
   --font-body: "Inter", system-ui, sans-serif;
@@ -101,7 +101,7 @@ button {
 .page {
   max-width: var(--maxw);
   margin: 0 auto;
-  padding: 28px 20px 80px;
+  padding: 28px 32px 80px;
 }
 
 .topbar {
@@ -200,55 +200,87 @@ button {
   text-decoration: underline;
 }
 
-/* ---- Search bar ---- */
+/* ---- Search panel ---- */
+/* Input, buttons, filters, and the hint text grouped into one bordered panel so
+   the search controls read as a single block (no stranded mid-page void). */
 
-.searchbar {
+.searchpanel {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
   margin-bottom: 18px;
 }
-.searchbar input[type="text"] {
-  /* full width on its own row; the buttons wrap to the row below */
-  flex: 1 1 100%;
-  min-width: 0;
-  background: var(--surface);
+.searchpanel-input {
+  width: 100%;
+  /* darker than the panel so the field reads as inset within it */
+  background: var(--bg);
   border: 1px solid var(--border-strong);
   color: var(--text);
   border-radius: var(--radius-sm);
   padding: 12px 14px;
   outline: none;
 }
-.searchbar input[type="text"]:focus {
+.searchpanel-input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-dim);
 }
-.searchbar input::placeholder {
+.searchpanel-input::placeholder {
   color: var(--text-faint);
 }
-/* The input takes the full first row; Search and Surprise me sit on the row
-   below. On desktop they stay natural width, left-aligned; on narrow screens
-   they stretch to share the row for bigger tap targets. */
-.searchbar .btn {
-  flex: 0 1 auto;
-  min-width: 140px;
+/* Buttons and filter pills share one row, split by a vertical divider. */
+.searchpanel-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.searchpanel-buttons {
+  display: flex;
+  gap: 10px;
+}
+.searchpanel-buttons .btn {
+  min-width: 130px;
+}
+.searchpanel-divider {
+  align-self: stretch;
+  width: 1px;
+  background: var(--border);
+  margin: 2px 4px;
+}
+.searchpanel-facets {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  flex: 1 1 auto;
+}
+.searchpanel-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.searchpanel-hint .hint {
+  margin: 0;
 }
 @media (max-width: 560px) {
-  .searchbar .btn {
+  /* Stack: buttons take their own full-width row; drop the divider. */
+  .searchpanel-buttons {
+    flex: 1 1 100%;
+  }
+  .searchpanel-buttons .btn {
     flex: 1 1 0;
     min-width: 0;
+  }
+  .searchpanel-divider {
+    display: none;
   }
 }
 
 /* ---- Facets ---- */
-
-.facets {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  margin-bottom: 12px;
-}
 
 .facet {
   position: relative;
@@ -641,113 +673,236 @@ button {
   border: 0;
 }
 
-/* ---- Insights carousel (feature 6) ---- */
+/* ---- Trivia strip (feature 6, rebalanced layout) ---- */
+/* The relocated + reshaped insights rotation: disc icon, text block, and the
+   controls (dots + counter + arrows) grouped on the right, all on one row. */
 
-.insights {
-  margin-top: 4px;
-  max-width: 720px;
-}
-.insights-head {
+.trivia {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-.insights-eyebrow {
-  font-family: var(--font-display);
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-faint);
-}
-.insights-progress {
-  font-size: 12px;
-  color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
-}
-.insight-card {
+  align-items: center;
+  gap: 16px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 20px;
-  min-height: 150px;
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 26px;
+}
+.trivia-icon {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  position: relative;
+  background:
+    radial-gradient(circle at center, var(--accent) 0 20%, transparent 21%),
+    repeating-radial-gradient(circle at center, var(--bg) 0 2px, var(--surface-hover) 2px 4px);
+}
+.trivia-icon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--bg);
+}
+.trivia-text {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 3px;
 }
-.insight-kind {
+.trivia-tag {
   align-self: flex-start;
-  font-size: 11px;
+  font-size: 10.5px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.07em;
   color: var(--accent);
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  padding: 2px 9px;
 }
-.insight-title {
+.trivia-title {
   font-family: var(--font-display);
-  font-size: 18px;
+  font-weight: 600;
+  font-size: 16px;
   line-height: 1.2;
   color: var(--text-strong);
 }
-.insight-body {
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.5;
+.trivia-body {
   margin: 0;
-}
-.insight-action {
-  align-self: flex-start;
-  margin-top: auto;
-  padding-top: 2px;
-  font-size: 13px;
-}
-.insights-nav {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  margin-top: 12px;
-}
-.insights-arrow {
-  background: transparent;
-  border: 1px solid var(--border);
+  font-size: 13.5px;
+  line-height: 1.45;
   color: var(--text-muted);
-  border-radius: 999px;
-  width: 30px;
-  height: 30px;
-  line-height: 1;
-  font-size: 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: border-color 0.15s ease, color 0.15s ease;
 }
-.insights-arrow:hover {
-  border-color: var(--accent);
-  color: var(--text);
+.trivia-action {
+  align-self: flex-start;
+  margin-top: 3px;
+  font-size: 12.5px;
 }
-.insights-dots {
+.trivia-controls {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
 }
-.insights-dot {
-  width: 7px;
-  height: 7px;
+.trivia-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.trivia-dot {
+  width: 6px;
+  height: 6px;
   padding: 0;
   border-radius: 50%;
   border: none;
   background: var(--border-strong);
   transition: background 0.15s ease, transform 0.15s ease;
 }
-.insights-dot:hover {
+.trivia-dot:hover {
   background: var(--text-muted);
 }
-.insights-dot.active {
+.trivia-dot.active {
   background: var(--accent);
   transform: scale(1.35);
+}
+.trivia-counter {
+  font-size: 12px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.trivia-arrows {
+  display: flex;
+  gap: 6px;
+}
+.trivia-arrow {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 999px;
+  width: 28px;
+  height: 28px;
+  line-height: 1;
+  font-size: 17px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.trivia-arrow:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+@media (max-width: 640px) {
+  .trivia {
+    flex-wrap: wrap;
+  }
+  .trivia-controls {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+}
+
+/* ---- On-the-shelf grid (feature 6, rebalanced layout) ---- */
+
+.shelf {
+  margin-bottom: 8px;
+}
+.shelf-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.shelf-head .section-title {
+  margin: 0;
+}
+.viewall {
+  white-space: nowrap;
+}
+.shelf-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+@media (max-width: 820px) {
+  .shelf-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 520px) {
+  .shelf-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.tile {
+  display: block;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+a.tile:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+  text-decoration: none;
+}
+.tile-cover {
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  margin-bottom: 10px;
+  /* vinyl-tinted fallback when there is no cover art */
+  background:
+    radial-gradient(circle at 50% 45%, var(--accent-dim) 0 30%, transparent 31%),
+    linear-gradient(150deg, var(--surface-hover), var(--surface));
+}
+.tile-cover.has-art {
+  background: none;
+}
+.tile-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.tile-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13.5px;
+  line-height: 1.25;
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.tile-artist {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.tile-owner {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
 }

@@ -1,15 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import InsightsCarousel from "@/app/components/InsightsCarousel";
 import MultiSelect from "@/app/components/MultiSelect";
 import RecordCard from "@/app/components/RecordCard";
+import RecordTile from "@/app/components/RecordTile";
+import TriviaStrip from "@/app/components/TriviaStrip";
 import {
   addBookmark,
   fetchBookmarks,
   fetchForgotten,
   fetchMeta,
   fetchPlays,
+  fetchShelf,
   logout,
   logPlay,
   moreLikeThis,
@@ -33,7 +35,8 @@ type View =
   | { kind: "surprise" }
   | { kind: "similar"; seed: ShelfRecord }
   | { kind: "saved" }
-  | { kind: "forgotten" };
+  | { kind: "forgotten" }
+  | { kind: "shelf" };
 
 /**
  * A restorable snapshot of a results view. We push one before navigating into
@@ -78,6 +81,12 @@ export default function CataloguePage() {
   const [forgotten, setForgotten] = useState<ForgottenPick | null>(null);
   const [forgottenLoading, setForgottenLoading] = useState(false);
 
+  // "On the shelf": a small random preview on the home view, plus the full list
+  // for the "View all" browse.
+  const [shelfPreview, setShelfPreview] = useState<ShelfRecord[]>([]);
+  const [shelfAll, setShelfAll] = useState<ShelfRecord[]>([]);
+  const [shelfLoading, setShelfLoading] = useState(false);
+
   // Bump this to force a search (e.g. on Enter / Search click) without needing a
   // dependency on the query string itself.
   const [runToken, setRunToken] = useState(0);
@@ -117,6 +126,22 @@ export default function CataloguePage() {
   useEffect(() => {
     void loadPlays();
   }, [loadPlays]);
+
+  // Load a small random preview for the "On the shelf" grid on mount. Fetched
+  // once; hides quietly on any error (feature off / no collection).
+  useEffect(() => {
+    let cancelled = false;
+    fetchShelf(8)
+      .then((res) => {
+        if (!cancelled) setShelfPreview(res.records);
+      })
+      .catch(() => {
+        // leave the grid hidden
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const hasFacets = owners.length + genres.length + styles.length + moods.length > 0;
   const trimmedQuery = query.trim();
@@ -263,6 +288,22 @@ export default function CataloguePage() {
     }
   }
 
+  // "View all": browse the whole shelf as a grid of tiles.
+  async function openShelf() {
+    setView({ kind: "shelf" });
+    setHistory([]);
+    setError(null);
+    setShelfLoading(true);
+    try {
+      const res = await fetchShelf(0, true);
+      setShelfAll(res.records);
+    } catch {
+      setShelfAll([]);
+    } finally {
+      setShelfLoading(false);
+    }
+  }
+
   async function onLogout() {
     await logout();
     window.location.assign("/login");
@@ -336,8 +377,9 @@ export default function CataloguePage() {
         Search a shared vinyl shelf by vibe, genre, style, or owner.
       </p>
 
-      <form className="searchbar" onSubmit={onSubmit}>
+      <form className="searchpanel" onSubmit={onSubmit}>
         <input
+          className="searchpanel-input"
           type="text"
           value={query}
           maxLength={300}
@@ -349,27 +391,53 @@ export default function CataloguePage() {
           }
           aria-label="Search records"
         />
-        <button type="submit" className="btn btn-primary" disabled={loading}>
-          Search
-        </button>
-        {meta?.features.random && (
-          <button type="button" className="btn" onClick={onSurprise} disabled={loading}>
-            Surprise me
-          </button>
+
+        <div className="searchpanel-controls">
+          <div className="searchpanel-buttons">
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              Search
+            </button>
+            {meta?.features.random && (
+              <button type="button" className="btn" onClick={onSurprise} disabled={loading}>
+                Surprise me
+              </button>
+            )}
+          </div>
+
+          <span className="searchpanel-divider" aria-hidden />
+
+          <div className="searchpanel-facets">
+            <MultiSelect label="Owner" options={meta?.owners ?? []} selected={owners} onChange={setOwners} />
+            <MultiSelect label="Genre" options={meta?.genres ?? []} selected={genres} onChange={setGenres} />
+            <MultiSelect label="Style" options={meta?.styles ?? []} selected={styles} onChange={setStyles} />
+            <MultiSelect label="Mood" options={meta?.moods ?? []} selected={moods} onChange={setMoods} />
+            {(hasFacets || trimmedQuery) && (
+              <button type="button" className="btn-ghost" onClick={clearAll}>
+                Clear all
+              </button>
+            )}
+          </div>
+        </div>
+
+        {view.kind === "idle" && (
+          <div className="searchpanel-hint">
+            {aiEnabled ? (
+              <p className="hint">
+                Try a vibe — <code>angry music</code>, <code>rainy day jazz</code>,{" "}
+                <code>something to dance to</code> — or pick a genre, style, mood, or owner above.
+              </p>
+            ) : (
+              <p className="hint">
+                Search by genre, style, artist, or label — or pick a facet above.
+              </p>
+            )}
+            <p className="hint">
+              Looking for a song? Ask <code>which record is “Africa” on?</code> or{" "}
+              <code>song: blue in green</code>.
+            </p>
+          </div>
         )}
       </form>
-
-      <div className="facets">
-        <MultiSelect label="Owner" options={meta?.owners ?? []} selected={owners} onChange={setOwners} />
-        <MultiSelect label="Genre" options={meta?.genres ?? []} selected={genres} onChange={setGenres} />
-        <MultiSelect label="Style" options={meta?.styles ?? []} selected={styles} onChange={setStyles} />
-        <MultiSelect label="Mood" options={meta?.moods ?? []} selected={moods} onChange={setMoods} />
-        {(hasFacets || trimmedQuery) && (
-          <button type="button" className="btn-ghost" onClick={clearAll}>
-            Clear all
-          </button>
-        )}
-      </div>
 
       <SelectedChips
         owners={owners}
@@ -435,27 +503,52 @@ export default function CataloguePage() {
             )}
           </>
         )}
+        {view.kind === "shelf" && (
+          <>
+            <span>The whole shelf{meta ? ` — ${meta.total} records` : ""}</span>
+            <button type="button" className="linkish" onClick={clearAll}>
+              Back
+            </button>
+          </>
+        )}
       </div>
 
       {!loading && view.kind === "idle" && !error && (
         <>
-          <div className="empty">
-            {aiEnabled ? (
-              <p className="hint">
-                Try a vibe — <code>angry music</code>, <code>rainy day jazz</code>,{" "}
-                <code>something to dance to</code> — or pick a genre, style, mood, or owner above.
-              </p>
-            ) : (
-              <p className="hint">
-                Search by genre, style, artist, or label — or pick a facet above.
-              </p>
-            )}
-            <p className="hint">
-              Looking for a song? Ask <code>which record is “Africa” on?</code> or{" "}
-              <code>song: blue in green</code>.
-            </p>
-          </div>
-          <InsightsCarousel onAction={applyInsightAction} />
+          <TriviaStrip onAction={applyInsightAction} />
+          {shelfPreview.length > 0 && (
+            <section className="shelf">
+              <div className="shelf-head">
+                <h2 className="section-title">On the shelf</h2>
+                {meta && meta.total > shelfPreview.length && (
+                  <button type="button" className="viewall linkish" onClick={openShelf}>
+                    View all {meta.total} →
+                  </button>
+                )}
+              </div>
+              <div className="shelf-grid">
+                {shelfPreview.map((r) => (
+                  <RecordTile key={`shelf:${r.owner}:${r.id}`} record={r} />
+                ))}
+              </div>
+            </section>
+          )}
+        </>
+      )}
+
+      {view.kind === "shelf" && (
+        <>
+          {shelfLoading && <div className="empty">Loading the shelf…</div>}
+          {!shelfLoading && shelfAll.length === 0 && (
+            <div className="empty">No records to show.</div>
+          )}
+          {!shelfLoading && shelfAll.length > 0 && (
+            <div className="shelf-grid">
+              {shelfAll.map((r) => (
+                <RecordTile key={`all:${r.owner}:${r.id}`} record={r} />
+              ))}
+            </div>
+          )}
         </>
       )}
 
@@ -463,6 +556,7 @@ export default function CataloguePage() {
         view.kind !== "idle" &&
         view.kind !== "saved" &&
         view.kind !== "forgotten" &&
+        view.kind !== "shelf" &&
         results.length === 0 &&
         !error && (
           <div className="empty">No records matched. Try loosening your filters.</div>
@@ -529,7 +623,7 @@ export default function CataloguePage() {
         </div>
       )}
 
-      {view.kind !== "saved" && view.kind !== "forgotten" && results.length > 0 && (
+      {view.kind !== "saved" && view.kind !== "forgotten" && view.kind !== "shelf" && results.length > 0 && (
         <div className="grid">
           {results.map((r, i) => (
             <RecordCard

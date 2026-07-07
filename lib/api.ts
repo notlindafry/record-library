@@ -12,6 +12,7 @@ import type {
   Record as ShelfRecord,
   SearchResponse,
   SearchResult,
+  ShelfResponse,
 } from "@/lib/types";
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
@@ -107,6 +108,18 @@ export async function fetchInsights(): Promise<InsightsResponse> {
   const res = await fetch("/api/insights", { method: "GET" });
   if (!res.ok) throw new Error(await extractError(res));
   return (await res.json()) as InsightsResponse;
+}
+
+/**
+ * Records for the "On the shelf" grid. `all` requests the full collection (for
+ * "View all"); otherwise a small random sample of `limit` records for the
+ * home-view preview.
+ */
+export async function fetchShelf(limit = 8, all = false): Promise<ShelfResponse> {
+  const query = all ? "?all=1" : `?limit=${encodeURIComponent(String(limit))}`;
+  const res = await fetch(`/api/shelf${query}`, { method: "GET" });
+  if (!res.ok) throw new Error(await extractError(res));
+  return (await res.json()) as ShelfResponse;
 }
 
 export async function login(password: string): Promise<{ ok: true; role: string }> {

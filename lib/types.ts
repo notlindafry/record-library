@@ -159,3 +159,12 @@ export interface InsightsResponse {
   /** True when these are code-computed stat cards rather than a cached model batch. */
   fallback?: boolean;
 }
+
+/** Response shape for /api/shelf — records for the home-view "On the shelf" grid. */
+export interface ShelfResponse {
+  records: Record[];
+  /** Total records in the merged collection (for the "View all {count}" link). */
+  total: number;
+  /** True when some accounts failed to load but others succeeded. */
+  partial: boolean;
+}
