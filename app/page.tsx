@@ -33,6 +33,19 @@ type View =
   | { kind: "saved" }
   | { kind: "forgotten" };
 
+/**
+ * A restorable snapshot of a results view. We push one before navigating into
+ * "more like this" so "Back" returns to exactly what was on screen — including
+ * chained similar views — instead of dumping you on the blank search page.
+ */
+type ResultsSnapshot = {
+  results: SearchResult[];
+  reranked: boolean;
+  songMatch: boolean;
+  partial: boolean;
+  view: View;
+};
+
 export default function CataloguePage() {
   const [meta, setMeta] = useState<MetaResponse | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
@@ -50,6 +63,10 @@ export default function CataloguePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>({ kind: "idle" });
+
+  // Snapshots of prior results views, so "Back" out of a "more like this" view
+  // restores what you were looking at rather than resetting to the search page.
+  const [history, setHistory] = useState<ResultsSnapshot[]>([]);
 
   const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
   const [savedList, setSavedList] = useState<Bookmark[]>([]);
@@ -112,6 +129,7 @@ export default function CataloguePage() {
       setSongMatch(res.songMatch ?? false);
       setPartial(res.partial);
       setView({ kind: "search" });
+      setHistory([]); // fresh search: nothing to go "Back" to
     } catch (err) {
       setError(err instanceof Error ? err.message : "Search failed");
       setResults([]);
@@ -130,6 +148,7 @@ export default function CataloguePage() {
     if (!trimmedQuery && !hasFacets) {
       setResults([]);
       setView({ kind: "idle" });
+      setHistory([]);
       return;
     }
     void runSearch();
@@ -150,6 +169,7 @@ export default function CataloguePage() {
       setReranked(false);
       setSongMatch(false);
       setView({ kind: "surprise" });
+      setHistory([]); // a new pick is its own root
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not pick a record");
     } finally {
@@ -158,10 +178,14 @@ export default function CataloguePage() {
   }
 
   async function onSimilar(record: ShelfRecord) {
+    // Remember what's on screen now so "Back" can restore it. Captured before
+    // the await so it reflects the view we're leaving, not the one we land on.
+    const from: ResultsSnapshot = { results, reranked, songMatch, partial, view };
     setLoading(true);
     setError(null);
     try {
       const { results: similar } = await moreLikeThis(record.id, record.owner);
+      setHistory((h) => [...h, from]);
       setResults(similar);
       setReranked(false);
       setSongMatch(false);
@@ -172,6 +196,23 @@ export default function CataloguePage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  // Restore the previous results view (one step up the "more like this" chain).
+  function goBack() {
+    const prev = history[history.length - 1];
+    if (!prev) {
+      clearAll();
+      return;
+    }
+    setResults(prev.results);
+    setReranked(prev.reranked);
+    setSongMatch(prev.songMatch);
+    setPartial(prev.partial);
+    setView(prev.view);
+    setError(null);
+    setHistory((h) => h.slice(0, -1));
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function onToggleBookmark(record: ShelfRecord) {
@@ -208,6 +249,7 @@ export default function CataloguePage() {
 
   async function openForgotten(force = false) {
     setView({ kind: "forgotten" });
+    setHistory([]);
     setForgottenLoading(true);
     void loadPlays();
     try {
@@ -232,6 +274,7 @@ export default function CataloguePage() {
     setQuery("");
     setResults([]);
     setView({ kind: "idle" });
+    setHistory([]);
   }
 
   const aiEnabled = meta?.features.aiSearch ?? false;
@@ -264,6 +307,7 @@ export default function CataloguePage() {
             onClick={async () => {
               await loadBookmarks();
               setView({ kind: "saved" });
+              setHistory([]);
             }}
           >
             Saved{bookmarkedIds.size ? ` (${bookmarkedIds.size})` : ""}
@@ -352,7 +396,7 @@ export default function CataloguePage() {
           </span>
         )}
         {!loading && view.kind === "similar" && (
-          <button type="button" className="linkish" onClick={clearAll}>
+          <button type="button" className="linkish" onClick={goBack}>
             Back
           </button>
         )}
