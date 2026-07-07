@@ -6,6 +6,7 @@
 import type {
   Bookmark,
   ForgottenPick,
+  InsightsResponse,
   MetaResponse,
   PlayedRecord,
   Record as ShelfRecord,
@@ -100,6 +101,12 @@ export async function fetchForgotten(force = false): Promise<ForgottenPick | nul
   const res = await fetch(`/api/forgotten${force ? "?refresh=1" : ""}`, { method: "GET" });
   if (!res.ok) throw new Error(await extractError(res));
   return ((await res.json()) as { pick: ForgottenPick | null }).pick;
+}
+
+export async function fetchInsights(): Promise<InsightsResponse> {
+  const res = await fetch("/api/insights", { method: "GET" });
+  if (!res.ok) throw new Error(await extractError(res));
+  return (await res.json()) as InsightsResponse;
 }
 
 export async function login(password: string): Promise<{ ok: true; role: string }> {

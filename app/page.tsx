@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import InsightsCarousel from "@/app/components/InsightsCarousel";
 import MultiSelect from "@/app/components/MultiSelect";
 import RecordCard from "@/app/components/RecordCard";
 import {
@@ -19,6 +20,7 @@ import {
 import type {
   Bookmark,
   ForgottenPick,
+  InsightAction,
   MetaResponse,
   PlayedRecord,
   Record as ShelfRecord,
@@ -277,6 +279,19 @@ export default function CataloguePage() {
     setHistory([]);
   }
 
+  // Tap-to-search from an insight card: dispatch into the existing search. Facet
+  // actions apply the matching facet (which the effect above turns into a search);
+  // a free-text action fills the query and forces a run. Starts from a clean slate.
+  const applyInsightAction = useCallback((action: InsightAction) => {
+    setOwners(action.type === "owner" ? [action.value] : []);
+    setGenres(action.type === "genre" ? [action.value] : []);
+    setStyles(action.type === "style" ? [action.value] : []);
+    setMoods([]);
+    setQuery(action.type === "search" ? action.value : "");
+    if (action.type === "search") setRunToken((t) => t + 1);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
   const aiEnabled = meta?.features.aiSearch ?? false;
   // Only owners may log plays (writes are owner-gated server-side); guests read only.
   const canWrite = Boolean(meta) && !meta?.features.guest;
@@ -423,22 +438,25 @@ export default function CataloguePage() {
       </div>
 
       {!loading && view.kind === "idle" && !error && (
-        <div className="empty">
-          {aiEnabled ? (
+        <>
+          <div className="empty">
+            {aiEnabled ? (
+              <p className="hint">
+                Try a vibe — <code>angry music</code>, <code>rainy day jazz</code>,{" "}
+                <code>something to dance to</code> — or pick a genre, style, mood, or owner above.
+              </p>
+            ) : (
+              <p className="hint">
+                Search by genre, style, artist, or label — or pick a facet above.
+              </p>
+            )}
             <p className="hint">
-              Try a vibe — <code>angry music</code>, <code>rainy day jazz</code>,{" "}
-              <code>something to dance to</code> — or pick a genre, style, mood, or owner above.
+              Looking for a song? Ask <code>which record is “Africa” on?</code> or{" "}
+              <code>song: blue in green</code>.
             </p>
-          ) : (
-            <p className="hint">
-              Search by genre, style, artist, or label — or pick a facet above.
-            </p>
-          )}
-          <p className="hint">
-            Looking for a song? Ask <code>which record is “Africa” on?</code> or{" "}
-            <code>song: blue in green</code>.
-          </p>
-        </div>
+          </div>
+          <InsightsCarousel onAction={applyInsightAction} />
+        </>
       )}
 
       {!loading &&

@@ -640,3 +640,114 @@ button {
   white-space: nowrap;
   border: 0;
 }
+
+/* ---- Insights carousel (feature 6) ---- */
+
+.insights {
+  margin-top: 4px;
+  max-width: 720px;
+}
+.insights-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.insights-eyebrow {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+}
+.insights-progress {
+  font-size: 12px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.insight-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.insight-kind {
+  align-self: flex-start;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+.insight-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  line-height: 1.2;
+  color: var(--text-strong);
+}
+.insight-body {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+}
+.insight-action {
+  align-self: flex-start;
+  margin-top: auto;
+  padding-top: 2px;
+  font-size: 13px;
+}
+.insights-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 12px;
+}
+.insights-arrow {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 999px;
+  width: 30px;
+  height: 30px;
+  line-height: 1;
+  font-size: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.insights-arrow:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.insights-dots {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.insights-dot {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border-radius: 50%;
+  border: none;
+  background: var(--border-strong);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.insights-dot:hover {
+  background: var(--text-muted);
+}
+.insights-dot.active {
+  background: var(--accent);
+  transform: scale(1.35);
+}

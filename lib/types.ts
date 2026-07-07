@@ -122,3 +122,40 @@ export interface MetaResponse {
     guest: boolean;
   };
 }
+
+/**
+ * A tap-to-search action an insight card can dispatch (feature 6). The value is
+ * validated server-side against the collection (and re-checked client-side)
+ * before it can drive a search, so a card can only ever route to a real facet or
+ * a bounded free-text query. `mood` is intentionally absent (it needs the fixed
+ * Mood vocabulary to route correctly).
+ */
+export type InsightAction =
+  | { type: "genre"; value: string }
+  | { type: "style"; value: string }
+  | { type: "owner"; value: string }
+  | { type: "search"; value: string };
+
+/**
+ * One observation about the merged collection, shown as a card in the home-view
+ * carousel. Usually model-generated from precomputed aggregates; falls back to
+ * code-computed stat cards when no batch is cached. All fields render as escaped
+ * React text.
+ */
+export interface Insight {
+  title: string;
+  body: string;
+  /** Short free-text label the model coins for the kind of observation. */
+  kind: string;
+  /** Optional tap-to-search action, or null. */
+  action: InsightAction | null;
+}
+
+/** Response shape for /api/insights. */
+export interface InsightsResponse {
+  insights: Insight[];
+  /** Epoch ms the batch was generated (or, for the fallback, served). */
+  generatedAt: number;
+  /** True when these are code-computed stat cards rather than a cached model batch. */
+  fallback?: boolean;
+}
