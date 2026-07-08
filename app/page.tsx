@@ -348,10 +348,7 @@ export default function CataloguePage() {
         </div>
         <div className="topbar-right">
           {meta && (
-            <span className="count">
-              {meta.total} records
-              {meta.owners.length > 0 && ` · ${meta.owners.length} shelves`}
-            </span>
+            <span className="count">{meta.total} records</span>
           )}
           {meta?.features.guest && <span className="badge">guest</span>}
           <div className="topbar-actions">
