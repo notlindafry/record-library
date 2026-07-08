@@ -142,6 +142,14 @@ button {
 .topbar-right .count {
   white-space: nowrap;
 }
+/* Keep the action buttons together on a single row; the record count wraps
+   above them on narrow screens rather than the last button dropping off. */
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 12px;
+}
 
 /* ---- Buttons (flat, rounded, no shadow) ---- */
 

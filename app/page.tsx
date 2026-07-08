@@ -354,23 +354,25 @@ export default function CataloguePage() {
             </span>
           )}
           {meta?.features.guest && <span className="badge">guest</span>}
-          <button type="button" className="btn-ghost" onClick={() => openForgotten()}>
-            Forgotten
-          </button>
-          <button
-            type="button"
-            className="btn-ghost"
-            onClick={async () => {
-              await loadBookmarks();
-              setView({ kind: "saved" });
-              setHistory([]);
-            }}
-          >
-            Saved{bookmarkedIds.size ? ` (${bookmarkedIds.size})` : ""}
-          </button>
-          <button type="button" className="btn-ghost" onClick={onLogout}>
-            Log out
-          </button>
+          <div className="topbar-actions">
+            <button type="button" className="btn-ghost" onClick={() => openForgotten()}>
+              Forgotten
+            </button>
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={async () => {
+                await loadBookmarks();
+                setView({ kind: "saved" });
+                setHistory([]);
+              }}
+            >
+              Saved{bookmarkedIds.size ? ` (${bookmarkedIds.size})` : ""}
+            </button>
+            <button type="button" className="btn-ghost" onClick={onLogout}>
+              Log out
+            </button>
+          </div>
         </div>
       </div>
       <p className="tagline">
