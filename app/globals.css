@@ -133,6 +133,8 @@ button {
 .topbar-right {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 12px;
   font-size: 13px;
   color: var(--text-faint);
