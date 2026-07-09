@@ -117,3 +117,25 @@ Wired from the current Discogs API docs/forum:
 - `npm run build` / `npm run start` — production build & serve
 - `npm run typecheck` — `tsc --noEmit`
 - `npm run lint` — Next lint
+
+### Backfilling the hydration crons
+
+The `hydrate-*` crons each process a bounded batch per run and, left to the
+schedule in `vercel.json`, fill in slowly (once a day). To backfill the whole
+collection now, drive the cron to completion with the loop runner. It re-calls
+the endpoint until nothing is pending, printing progress; it is idempotent, so
+re-running just resumes.
+
+```bash
+# against the live deployment
+CRON_SECRET=<your secret> BASE_URL=https://<your-app>.vercel.app \
+  npm run backfill:descriptors
+
+# against a local `npm run dev` (BASE_URL defaults to http://localhost:3000)
+CRON_SECRET=<your secret> npm run backfill:descriptors
+```
+
+`CRON_SECRET` must match the value set on the target (it is sent as
+`Authorization: Bearer <CRON_SECRET>`, exactly like Vercel Cron). The same
+runner covers `backfill:tracks` and `backfill:lastfm`. Descriptors also need
+`ANTHROPIC_API_KEY` set on the deployment, or the cron no-ops.

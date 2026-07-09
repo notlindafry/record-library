@@ -8,7 +8,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "backfill:descriptors": "node scripts/backfill.mjs hydrate-descriptors",
+    "backfill:tracks": "node scripts/backfill.mjs hydrate-tracks",
+    "backfill:lastfm": "node scripts/backfill.mjs hydrate-lastfm"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
