@@ -18,7 +18,7 @@ import type { Insight, InsightAction } from "@/lib/types";
 import type { Aggregate, AllowedActionValues } from "@/lib/insights/aggregate";
 import { INSIGHTS_SYSTEM_PROMPT, buildInsightsUserMessage } from "@/lib/insights/prompt";
 
-const MAX_INSIGHTS = 10; // upper bound of the 6-10 range in the prompt
+const MAX_INSIGHTS = 4; // matches the object count requested in the prompt
 const MAX_TITLE = 80;
 const MAX_BODY = 240;
 const MAX_KIND = 40;

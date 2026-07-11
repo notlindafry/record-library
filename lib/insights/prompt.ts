@@ -4,8 +4,8 @@
  * The system prompt is reproduced verbatim from the feature spec: it fixes the
  * voice (dry, well-read record-store regular), the grounding rules (use only the
  * provided aggregate; never invent or change a number), and the exact output
- * shape ({ insights: [...] } with 6-10 objects). Change the two count numbers
- * here and the schema bound in generate.ts together if you retune the range.
+ * shape ({ insights: [...] } with 4 objects). Keep the count in the OUTPUT block
+ * below and the MAX_INSIGHTS bound in generate.ts in sync if you retune it.
  */
 
 import type { Aggregate } from "@/lib/insights/aggregate";
@@ -51,8 +51,8 @@ VOICE:
 
 OUTPUT:
 - Return only a JSON object, with no prose around it and no markdown code fences.
-- Shape: { "insights": [ ... ] }, with between 6 and 10 objects, however many the
-  data genuinely supports.
+- Shape: { "insights": [ ... ] }, with 4 objects, or fewer if the data genuinely
+  does not support four.
 - Each object has:
   - "title": string.
   - "body": string.

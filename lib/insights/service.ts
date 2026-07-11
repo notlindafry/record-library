@@ -3,10 +3,11 @@
  * read-side batch lookup. Both routes stay thin and call in here.
  *
  * Cost is held under the $3/month ceiling by decoupling generation from viewing:
- *   - `refreshInsights` (cron only) regenerates ONLY when the collection changed
- *     or the batch is stale, behind a lock and a per-day cap, then caches the
- *     result. Repeated cron runs on an unchanged shelf are a no-op — zero Claude
- *     calls.
+ *   - `refreshInsights` (cron only) regenerates when the collection changed or the
+ *     batch is stale (older than the ~22h max-age ceiling), behind a lock and a
+ *     per-day cap, then caches the result. With the once-daily cron this is one
+ *     fresh batch per day; any extra run within the same day on an unchanged,
+ *     fresh shelf is a no-op — zero Claude calls.
  *   - `getInsights` (read path) serves the cached batch and NEVER calls Claude;
  *     it falls back to code-computed stat cards when nothing is cached.
  *
@@ -32,7 +33,10 @@ const LOCK_TTL_SECONDS = 120; // auto-expires so a crashed run can't wedge the l
 const CAP_TTL_SECONDS = 60 * 60 * 26; // just over a day, so the daily counter cleans itself up
 
 // Regeneration gate defaults (both overridable via env).
-const DEFAULT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // freshness/variety ceiling
+// Just under a day, so each daily cron run regenerates a fresh batch even on an
+// unchanged shelf. Kept below 24h (not exactly 24h) so cron timing drift can't
+// leave the batch age just short of the threshold and skip a day's refresh.
+const DEFAULT_MAX_AGE_MS = 22 * 60 * 60 * 1000; // ~daily refresh
 const DEFAULT_DAILY_CAP = 8; // ~$0.011/gen * 8 * 30 stays under the $3 ceiling
 
 /** The cached batch shape. */

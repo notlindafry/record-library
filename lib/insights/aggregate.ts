@@ -305,6 +305,11 @@ export function allowedActionValues(records: ShelfRecord[]): AllowedActionValues
 
 // ---- Code-computed fallback cards (served until the first generation) ----
 
+// Cap the fallback to match the generated batch size, so the carousel shows the
+// same number of cards whether or not a model batch is cached. Cards are built in
+// priority order below, so slicing keeps the most useful ones.
+const MAX_FALLBACK_CARDS = 4;
+
 function ownerPossessive(label: string): string {
   return /s$/i.test(label) ? `${label}'` : `${label}'s`;
 }
@@ -407,5 +412,5 @@ export function statCards(aggregate: Aggregate): Insight[] {
     }
   }
 
-  return cards;
+  return cards.slice(0, MAX_FALLBACK_CARDS);
 }
