@@ -18,6 +18,16 @@ import { createHash } from "node:crypto";
 import type { Insight, InsightAction, Record as ShelfRecord } from "@/lib/types";
 import { presentGenres, presentOwners, presentStyles } from "@/lib/vocab";
 
+/**
+ * How many insight cards the carousel shows. Single source of truth: the
+ * generation prompt asks for this many, the parser caps the model batch at it,
+ * the read path trims any cached batch to it, and the code-computed fallback is
+ * capped to it. Trimming on read matters because a batch cached under an older,
+ * larger count is served verbatim until it is regenerated, so the cap has to be
+ * enforced at read time, not only at generation time.
+ */
+export const INSIGHTS_COUNT = 4;
+
 // Bounds that keep the model input small and cheap.
 const TOP_LIST_LIMIT = 15;
 const PER_OWNER_LIMIT = 5;
@@ -305,11 +315,6 @@ export function allowedActionValues(records: ShelfRecord[]): AllowedActionValues
 
 // ---- Code-computed fallback cards (served until the first generation) ----
 
-// Cap the fallback to match the generated batch size, so the carousel shows the
-// same number of cards whether or not a model batch is cached. Cards are built in
-// priority order below, so slicing keeps the most useful ones.
-const MAX_FALLBACK_CARDS = 4;
-
 function ownerPossessive(label: string): string {
   return /s$/i.test(label) ? `${label}'` : `${label}'s`;
 }
@@ -412,5 +417,8 @@ export function statCards(aggregate: Aggregate): Insight[] {
     }
   }
 
-  return cards.slice(0, MAX_FALLBACK_CARDS);
+  // Cap to match the generated batch, so the carousel shows the same number of
+  // cards whether or not a model batch is cached. Cards are built in priority
+  // order above, so slicing keeps the most useful ones.
+  return cards.slice(0, INSIGHTS_COUNT);
 }

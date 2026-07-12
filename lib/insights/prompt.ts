@@ -3,12 +3,13 @@
  *
  * The system prompt is reproduced verbatim from the feature spec: it fixes the
  * voice (dry, well-read record-store regular), the grounding rules (use only the
- * provided aggregate; never invent or change a number), and the exact output
- * shape ({ insights: [...] } with 4 objects). Keep the count in the OUTPUT block
- * below and the MAX_INSIGHTS bound in generate.ts in sync if you retune it.
+ * provided aggregate; never invent or change a number), and the output shape
+ * ({ insights: [...] }). The card count is interpolated from the shared
+ * INSIGHTS_COUNT constant, so retuning it there updates the prompt too.
  */
 
 import type { Aggregate } from "@/lib/insights/aggregate";
+import { INSIGHTS_COUNT } from "@/lib/insights/aggregate";
 
 export const INSIGHTS_SYSTEM_PROMPT = `You write short "insight" cards about a shared vinyl record collection, shown in a
 carousel in an app called vibe-shelf. Two people's shelves are merged into one
@@ -51,8 +52,8 @@ VOICE:
 
 OUTPUT:
 - Return only a JSON object, with no prose around it and no markdown code fences.
-- Shape: { "insights": [ ... ] }, with 4 objects, or fewer if the data genuinely
-  does not support four.
+- Shape: { "insights": [ ... ] }, with ${INSIGHTS_COUNT} objects; produce fewer
+  only if the data genuinely does not support that many.
 - Each object has:
   - "title": string.
   - "body": string.

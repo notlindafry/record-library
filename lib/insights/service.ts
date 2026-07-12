@@ -19,6 +19,7 @@ import { getCollection } from "@/lib/discogs";
 import { isRedisConfigured, redis } from "@/lib/redis";
 import type { InsightsResponse, Insight } from "@/lib/types";
 import {
+  INSIGHTS_COUNT,
   allowedActionValues,
   buildAggregate,
   collectionHash,
@@ -146,7 +147,9 @@ export async function getInsights(): Promise<InsightsResponse> {
     try {
       const batch = await redis().get<InsightsBatch>(CURRENT_KEY);
       if (batch && Array.isArray(batch.insights) && batch.insights.length > 0) {
-        return { insights: batch.insights, generatedAt: batch.generatedAt };
+        // Trim to the current display count. A batch cached under an older, larger
+        // count is served as-is until it regenerates, so cap it here on read.
+        return { insights: batch.insights.slice(0, INSIGHTS_COUNT), generatedAt: batch.generatedAt };
       }
     } catch (err) {
       console.error("[insights] batch read failed:", err instanceof Error ? err.message : err);
