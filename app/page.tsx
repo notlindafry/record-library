@@ -549,7 +549,12 @@ export default function CataloguePage() {
           {!shelfLoading && shelfAll.length > 0 && (
             <div className="shelf-grid">
               {shelfAll.map((r) => (
-                <RecordTile key={`all:${r.owner}:${r.id}`} record={r} />
+                <RecordTile
+                  key={`all:${r.owner}:${r.id}`}
+                  record={r}
+                  isBookmarked={bookmarkedIds.has(r.id)}
+                  onToggleBookmark={onToggleBookmark}
+                />
               ))}
             </div>
           )}
