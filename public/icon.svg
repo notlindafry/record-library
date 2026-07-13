@@ -2,10 +2,10 @@
   <!-- full-bleed dark-green background; launcher masks this to a circle -->
   <rect width="512" height="512" fill="#1D231C"/>
   <g fill="none" stroke-linecap="round">
-    <circle cx="256" cy="256" r="170" stroke="#7D9B83" stroke-width="12"/>
-    <circle cx="256" cy="256" r="136" stroke="#7D9B83" stroke-width="5.5" opacity="0.7"/>
-    <circle cx="256" cy="256" r="106" stroke="#7D9B83" stroke-width="5.5" opacity="0.7"/>
-    <circle cx="256" cy="256" r="56"  stroke="#7D9B83" stroke-width="9"/>
+    <circle cx="256" cy="256" r="170" stroke="#7D9B83" stroke-width="28"/>
+    <circle cx="256" cy="256" r="136" stroke="#7D9B83" stroke-width="7" opacity="0.7"/>
+    <circle cx="256" cy="256" r="106" stroke="#7D9B83" stroke-width="7" opacity="0.7"/>
+    <circle cx="256" cy="256" r="56"  stroke="#7D9B83" stroke-width="11"/>
   </g>
   <circle cx="256" cy="256" r="10" fill="#E6E4DB"/>
 </svg>
