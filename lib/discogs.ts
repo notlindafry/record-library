@@ -425,11 +425,45 @@ function triggerBackgroundRefresh(): void {
 }
 
 /**
+ * The last-known-good collection snapshot, preferring the shared Redis blob and
+ * falling back to the in-process cache. Used to decide whether a partial load
+ * should be allowed to replace a fuller cached collection.
+ */
+async function lastKnownGoodCollection(
+  haveRedis: boolean,
+): Promise<{ records: ShelfRecord[]; partial: boolean } | null> {
+  if (haveRedis) {
+    try {
+      const blob = await redis().get<CollectionBlob>(COLLECTION_KEY);
+      if (blob && Array.isArray(blob.records)) {
+        return { records: blob.records, partial: Boolean(blob.partial) };
+      }
+    } catch (err) {
+      console.error(
+        "[discogs] last-known-good read failed:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  if (cache && Array.isArray(cache.records)) {
+    return { records: cache.records, partial: cache.partial };
+  }
+  return null;
+}
+
+/**
  * Fetch every account, map, merge, then write the result to Redis and the
  * in-process cache. Exported so the Vercel Cron route can warm the cache on a
  * schedule. A short Redis lock keeps a cold-start stampede from fanning out into
  * many concurrent Discogs paginates; it is best-effort and always fails open to a
  * direct fetch.
+ *
+ * Partial loads never shrink a good cache: when one account fails (decision B),
+ * the merged set is smaller, so if a previously cached snapshot has more records
+ * we keep serving that one instead of overwriting it. The good snapshot is
+ * re-stamped so reads don't treat it as stale and hammer Discogs; the next
+ * TTL/cron cycle retries the failed account, so the shelf self-heals once that
+ * account recovers. Only a cold start with no prior cache serves the partial set.
  */
 export async function refreshCollection(): Promise<CachedCollection> {
   const haveRedis = isRedisConfigured();
@@ -461,6 +495,39 @@ export async function refreshCollection(): Promise<CachedCollection> {
 
   try {
     const loaded = await loadCollection();
+
+    // Guard: a partial load (one account failed) must not overwrite a fuller
+    // cached collection. Keep the last-known-good snapshot whenever it has more
+    // records, re-stamping it so the next TTL/cron cycle retries the failed
+    // account rather than every read hammering Discogs.
+    if (loaded.partial) {
+      const prev = await lastKnownGoodCollection(haveRedis);
+      if (prev && prev.records.length > loaded.records.length) {
+        const kept: CachedCollection = {
+          records: prev.records,
+          partial: prev.partial,
+          expiresAt: Date.now() + cacheTtlMs(),
+        };
+        cache = kept;
+        if (haveRedis) {
+          const blob: CollectionBlob = {
+            fetchedAt: Date.now(),
+            records: prev.records,
+            partial: prev.partial,
+          };
+          try {
+            await redis().set(COLLECTION_KEY, blob);
+          } catch (err) {
+            console.error("[discogs] Redis write failed:", err instanceof Error ? err.message : err);
+          }
+        }
+        console.warn(
+          `[discogs] partial load (${loaded.records.length} records); kept last-known-good (${prev.records.length} records)`,
+        );
+        return kept;
+      }
+    }
+
     cache = loaded;
     if (haveRedis) {
       const blob: CollectionBlob = {
