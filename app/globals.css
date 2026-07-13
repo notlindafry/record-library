@@ -608,6 +608,29 @@ button {
   color: inherit;
   text-decoration: underline;
 }
+
+/* Log out sits at the very bottom of the app screens as a quiet text link,
+   separated from the content above by a hairline rule. */
+.page-footer {
+  margin-top: 48px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: center;
+}
+.logout-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-faint);
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.logout-link:hover {
+  color: var(--text);
+}
 .hint code {
   color: var(--accent);
   background: var(--surface);

@@ -371,9 +371,6 @@ export default function CataloguePage() {
             >
               Saved{bookmarkedIds.size ? ` (${bookmarkedIds.size})` : ""}
             </button>
-            <button type="button" className="btn-ghost" onClick={onLogout}>
-              Log out
-            </button>
           </div>
         </div>
       </div>
@@ -658,6 +655,12 @@ export default function CataloguePage() {
           .
         </p>
       )}
+
+      <footer className="page-footer">
+        <button type="button" className="logout-link" onClick={onLogout}>
+          Log out
+        </button>
+      </footer>
     </main>
   );
 }
