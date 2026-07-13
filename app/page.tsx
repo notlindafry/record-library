@@ -349,7 +349,7 @@ export default function CataloguePage() {
     <main className="page">
       <div className="topbar">
         <div>
-          <div className="wordmark">
+          <div className={`wordmark${view.kind === "wishlist" ? " wordmark-crumbed" : ""}`}>
             <button type="button" className="wordmark-home" onClick={clearAll}>
               vibe<span className="dash">-</span>shelf
             </button>

@@ -123,8 +123,14 @@ button {
 .wordmark .dash {
   color: var(--accent);
 }
-/* Breadcrumb suffix on the wordmark, e.g. "vibe-shelf / maybe-vibes" in a view. */
+/* Breadcrumb title "vibe-shelf / maybe-vibes": the current section (the crumb)
+   carries the emphasis (light color + bold) while the "vibe-shelf" home link
+   recedes to normal weight and a dimmer color. */
 .wordmark-crumb {
+  color: var(--text-strong);
+  font-weight: 700;
+}
+.wordmark-crumbed .wordmark-home {
   color: var(--text-muted);
   font-weight: 500;
 }
