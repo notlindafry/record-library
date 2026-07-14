@@ -399,9 +399,10 @@ export default function CataloguePage() {
           : "Search a shared vinyl shelf by vibe, genre, style, or owner."}
       </p>
 
-      {/* Catalogue search + facets belong to the vibe-shelf collection only; the
-          maybe-vibes view has its own Spotify search instead. */}
-      {view.kind !== "wishlist" && (
+      {/* Catalogue search + facets belong to the browsing/results views only. The
+          maybe-vibes view has its own Spotify search, and the saved/forgotten
+          screens are curated lists with nothing to search or filter. */}
+      {view.kind !== "wishlist" && view.kind !== "saved" && view.kind !== "forgotten" && (
         <>
       <form className="searchpanel" onSubmit={onSubmit}>
         <input
