@@ -221,6 +221,14 @@ button {
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* A faded primary button would collapse its dark ink into the sage fill and
+   read as label-less. Keep it opaque with a dimmed fill and legible caption. */
+.btn-primary:disabled {
+  opacity: 1;
+  background: var(--accent-dim);
+  border-color: transparent;
+  color: var(--text-muted);
+}
 
 .linkish {
   background: none;
