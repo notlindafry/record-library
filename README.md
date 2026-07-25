@@ -137,5 +137,7 @@ CRON_SECRET=<your secret> npm run backfill:descriptors
 
 `CRON_SECRET` must match the value set on the target (it is sent as
 `Authorization: Bearer <CRON_SECRET>`, exactly like Vercel Cron). The same
-runner covers `backfill:tracks` and `backfill:lastfm`. Descriptors also need
-`ANTHROPIC_API_KEY` set on the deployment, or the cron no-ops.
+runner covers `backfill:tracks`, `backfill:lastfm`, and `backfill:moods`.
+Descriptors and moods also need `ANTHROPIC_API_KEY` set on the deployment, or the
+cron no-ops. Moods are what the Mood filter and vibe queries read: until the
+mood backfill has run once, mood filtering falls back to the style/tag heuristic.
