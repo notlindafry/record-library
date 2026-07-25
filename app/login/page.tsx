@@ -8,13 +8,21 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function onSubmit(event: React.FormEvent) {
+  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
+    // Read straight from the field so browser/iOS autofill is honoured even when
+    // it populates the input without firing React's onChange (which would leave
+    // `password` state empty).
+    const entered = (new FormData(event.currentTarget).get("password") as string | null) ?? password;
+    if (!entered) {
+      setError("Enter the password to browse.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await login(password);
+      await login(entered);
       // Full navigation so middleware sees the new session cookie.
       window.location.assign("/");
     } catch (err) {
@@ -36,6 +44,7 @@ export default function LoginPage() {
           </label>
           <input
             id="password"
+            name="password"
             type="password"
             autoComplete="current-password"
             placeholder="Password"
@@ -45,8 +54,14 @@ export default function LoginPage() {
             required
           />
           {error && <div className="error">{error}</div>}
-          <button type="submit" className="btn btn-primary" disabled={busy || !password}>
-            {busy ? <span className="spin" aria-hidden /> : "Enter"}
+          <button type="submit" className="btn btn-primary" disabled={busy}>
+            {busy ? (
+              <>
+                <span className="spin" aria-hidden /> Signing in…
+              </>
+            ) : (
+              "Enter"
+            )}
           </button>
         </form>
       </div>
