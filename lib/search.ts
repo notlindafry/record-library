@@ -17,7 +17,7 @@
 import { createHash } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import type { QuerySpec, Record as ShelfRecord, SearchResult } from "@/lib/types";
-import { MOODS, presentGenres, presentOwners, presentStyles } from "@/lib/vocab";
+import { MOODS, expandMoodsToStyles, presentGenres, presentOwners, presentStyles } from "@/lib/vocab";
 import { getMoodIndex, type MoodIndex } from "@/lib/moods";
 import { normArtist } from "@/lib/lastfm";
 import { isRedisConfigured, redis } from "@/lib/redis";
@@ -36,6 +36,14 @@ const STYLE_HINT_LIMIT = 400; // cap on styles sent to the understand step
 // thematic one at equal strength, while a descriptor-only match still pushes the
 // score above zero so the record survives to the candidate set.
 const DESCRIPTOR_WEIGHT = 0.9;
+// A record whose style is implied by a query mood (via VIBE_TO_STYLE, e.g. Disco
+// for "happy"). Below a genre hit (1.5): a mood-implied style is a softer signal
+// than an explicit genre, but still enough to carry the record into the candidate
+// set. This is the deterministic recall path that works with no API key.
+const MOOD_STYLE_WEIGHT = 1.25;
+// A record the mood index actually tagged with a query mood — a judged "this feels
+// happy", stronger than a merely style-implied match.
+const MOOD_INDEX_WEIGHT = 1.5;
 const QSPEC_VERSION = 2; // bump when the understand-step prompt changes
 const QSPEC_TTL_SECONDS = 3 * 24 * 60 * 60; // ~3 days; version+model in the key protect correctness
 
@@ -237,6 +245,7 @@ function scoreRecords(
   records: ShelfRecord[],
   moodIndex?: MoodIndex | null,
   descriptors?: Map<string, string> | null,
+  facetMoods: string[] = [],
 ): Scored[] {
   const genres = new Set(spec.genres.map(norm));
   const owners = new Set(spec.owners.map(norm));
@@ -245,16 +254,31 @@ function scoreRecords(
   const excludeStyles = new Set((spec.excludeStyles ?? []).map(norm));
   const explicitStyles = spec.styles.map(norm);
 
-  // Moods combine with AND, using the (Claude-derived, cached) per-record mood
-  // index: a record must be tagged with EVERY selected mood.
   const selectedMoods = Array.from(new Set(spec.moods.map(norm)));
-  const hasMoodFilter = selectedMoods.length > 0 && !!moodIndex;
+  // Two kinds of mood. Moods the user explicitly picked from the Mood facet are a
+  // deliberate HARD filter (AND) against the mood index. Moods merely inferred
+  // from free text ("happy", "evening mellow") are SOFT: they broaden, not
+  // restrict — otherwise a single vibe word silently discards most of the shelf.
+  const hardMoodSet = new Set(facetMoods.map(norm));
+  const hardMoods = selectedMoods.filter((m) => hardMoodSet.has(m));
+  const softMoods = selectedMoods.filter((m) => !hardMoodSet.has(m));
+  const hasHardMood = hardMoods.length > 0 && !!moodIndex;
 
-  // Genre / style / artist / keyword are scored as an OR pool; moods are a
-  // separate hard AND filter, applied per-record below.
+  // Deterministic recall path: expand soft moods to the styles they imply
+  // (VIBE_TO_STYLE, restricted to styles actually present), so a vibe query scores
+  // records with the right style even when the mood index never tagged them — and
+  // even when there is no API key or hydrated data at all.
+  const moodStyles = new Set(softMoods.length ? expandMoodsToStyles(softMoods, records).map(norm) : []);
+
+  // Genre / style / artist / keyword / soft-mood are scored as an OR pool; only
+  // explicitly-picked mood facets act as a hard AND filter.
   const hasContentConstraint =
-    genres.size > 0 || explicitStyles.length > 0 || artists.length > 0 || keywords.length > 0;
-  const hasAnyConstraint = hasContentConstraint || hasMoodFilter;
+    genres.size > 0 ||
+    explicitStyles.length > 0 ||
+    artists.length > 0 ||
+    keywords.length > 0 ||
+    softMoods.length > 0;
+  const hasAnyConstraint = hasContentConstraint || hasHardMood;
 
   const scored: Scored[] = [];
 
@@ -266,11 +290,10 @@ function scoreRecords(
     // Hard filter: excluded styles.
     if (excludeStyles.size > 0 && recStyles.some((s) => excludeStyles.has(s))) continue;
 
-    // Hard filter: moods (AND) — the record must be tagged with every selected mood.
-    if (hasMoodFilter) {
-      const recMoods = moodIndex!.get(record);
-      if (!selectedMoods.every((m) => recMoods.has(m))) continue;
-    }
+    // Hard filter: mood FACETS (AND) — the record must be tagged with every
+    // explicitly-selected mood.
+    const recMoods = moodIndex ? moodIndex.get(record) : null;
+    if (hasHardMood && !hardMoods.every((m) => recMoods!.has(m))) continue;
 
     if (!hasAnyConstraint) {
       // Pure browse (e.g. owner-only or empty query): keep everything, flat score.
@@ -293,9 +316,15 @@ function scoreRecords(
       const descriptor = descriptors.get(record.id)?.toLowerCase();
       if (descriptor) for (const k of keywords) if (descriptor.includes(k)) score += DESCRIPTOR_WEIGHT;
     }
-    // The AND gate already passed; give mood-matched records a positive score so
-    // mood-only browses surface (and keep them above pure genre noise).
-    if (hasMoodFilter) score += selectedMoods.length * 1.5;
+    // Soft-mood recall: score a record whose style is implied by the vibe, and
+    // more so when the mood index actually judged the record to carry that mood.
+    if (softMoods.length) {
+      for (const s of recStyles) if (moodStyles.has(s)) score += MOOD_STYLE_WEIGHT;
+      if (recMoods) for (const m of softMoods) if (recMoods.has(m)) score += MOOD_INDEX_WEIGHT;
+    }
+    // A passed hard-mood facet is a positive signal too, so mood-only facet
+    // browses surface above pure genre noise.
+    if (hasHardMood) score += hardMoods.length * MOOD_INDEX_WEIGHT;
 
     if (score > 0) scored.push({ record, score });
   }
@@ -525,9 +554,11 @@ export async function searchRecords(
   }
 
   // Prefilter + score. When moods are in play, classify (or reuse cached) moods
-  // for the collection so the AND filter uses Claude's per-record tags.
+  // for the collection so the facet AND filter (and the soft-mood bonus) can use
+  // Claude's per-record tags. Only moods picked from the facet act as a hard
+  // filter; moods inferred from the query broaden results instead.
   const moodIndex = spec.moods.length > 0 ? await getMoodIndex(records) : null;
-  const scored = scoreRecords(spec, records, moodIndex, descriptors);
+  const scored = scoreRecords(spec, records, moodIndex, descriptors, options.moods ?? []);
   const candidates = scored.slice(0, CANDIDATE_LIMIT).map((s) => s.record);
 
   if (candidates.length === 0) {

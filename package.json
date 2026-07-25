@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "backfill:descriptors": "node scripts/backfill.mjs hydrate-descriptors",
     "backfill:tracks": "node scripts/backfill.mjs hydrate-tracks",
-    "backfill:lastfm": "node scripts/backfill.mjs hydrate-lastfm"
+    "backfill:lastfm": "node scripts/backfill.mjs hydrate-lastfm",
+    "backfill:moods": "node scripts/backfill.mjs hydrate-moods"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
