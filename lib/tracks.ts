@@ -40,16 +40,25 @@ export async function hydratedCount(): Promise<number> {
   return typeof n === "number" ? n : 0;
 }
 
-/** All hydrated tracklists, keyed by release id. Empty on any failure. */
-async function allTracks(): Promise<Map<string, Track[]>> {
+/**
+ * All hydrated tracklists, keyed by release id. Fails open to an empty map when
+ * Redis is unconfigured or the read throws, logging server-side — the same
+ * fail-open convention as allArtistData() in lib/lastfm.ts. Descriptor
+ * generation reads this in bulk to ground descriptors in track titles.
+ */
+export async function allTracks(): Promise<Map<string, Track[]>> {
   const out = new Map<string, Track[]>();
   if (!isRedisConfigured()) return out;
-  const map = await redis().hgetall<Record<string, Track[]>>(TRACKS_KEY);
-  if (!map) return out;
-  for (const [id, value] of Object.entries(map)) {
-    // The client deserializes JSON by default; guard a stray string value.
-    const tracks = typeof value === "string" ? (JSON.parse(value) as Track[]) : value;
-    if (Array.isArray(tracks)) out.set(id, tracks);
+  try {
+    const map = await redis().hgetall<Record<string, Track[]>>(TRACKS_KEY);
+    if (!map) return out;
+    for (const [id, value] of Object.entries(map)) {
+      // The client deserializes JSON by default; guard a stray string value.
+      const tracks = typeof value === "string" ? (JSON.parse(value) as Track[]) : value;
+      if (Array.isArray(tracks)) out.set(id, tracks);
+    }
+  } catch (err) {
+    console.error("[tracks] allTracks read failed:", err instanceof Error ? err.message : err);
   }
   return out;
 }
