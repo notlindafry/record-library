@@ -250,12 +250,18 @@ export async function hydratedArtistKeys(): Promise<Set<string>> {
 export async function allArtistData(): Promise<Map<string, ArtistData>> {
   const out = new Map<string, ArtistData>();
   if (!isRedisConfigured()) return out;
-  const map = await redis().hgetall<Record<string, ArtistData>>(ARTIST_KEY);
-  if (!map) return out;
-  for (const [key, value] of Object.entries(map)) {
-    // The client deserializes JSON by default; guard a stray string value.
-    const data = typeof value === "string" ? (JSON.parse(value) as ArtistData) : value;
-    if (data && typeof data === "object") out.set(key, data);
+  try {
+    const map = await redis().hgetall<Record<string, ArtistData>>(ARTIST_KEY);
+    if (!map) return out;
+    for (const [key, value] of Object.entries(map)) {
+      // The client deserializes JSON by default; guard a stray string value.
+      const data = typeof value === "string" ? (JSON.parse(value) as ArtistData) : value;
+      if (data && typeof data === "object") out.set(key, data);
+    }
+  } catch (err) {
+    // Fail open (matches the documented contract): descriptor generation
+    // degrades to genres/styles rather than failing the whole run.
+    console.error("[lastfm] allArtistData read failed:", err instanceof Error ? err.message : err);
   }
   return out;
 }

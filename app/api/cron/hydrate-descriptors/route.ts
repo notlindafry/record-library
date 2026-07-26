@@ -9,6 +9,8 @@ import {
   generateDescriptors,
   storeDescriptor,
 } from "@/lib/descriptors";
+import { allTracks } from "@/lib/tracks";
+import { allArtistData } from "@/lib/lastfm";
 import type { Record as ShelfRecord } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -57,13 +59,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const pending = ids.filter((id) => !current.has(id));
     const batch = pending.slice(0, BATCH_SIZE).map((id) => byId.get(id)!);
 
+    // Bulk grounding inputs, read once per run and shared across chunks. Both
+    // fail open to an empty map, so a missing tracklist, missing Last.fm data,
+    // or an unconfigured Redis degrades generation to genres/styles alone.
+    const [tracksById, artistData] = await Promise.all([allTracks(), allArtistData()]);
+
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
     let done = 0;
     for (let i = 0; i < batch.length; i += DESCRIPTOR_CHUNK_SIZE) {
       const chunk = batch.slice(i, i + DESCRIPTOR_CHUNK_SIZE);
       try {
-        const generated = await generateDescriptors(client, chunk);
+        const generated = await generateDescriptors(client, chunk, tracksById, artistData);
         for (const [id, text] of generated) {
           await storeDescriptor(id, { v: DESCRIPTOR_VERSION, text });
           done += 1;

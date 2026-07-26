@@ -10,6 +10,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "backfill:descriptors": "node scripts/backfill.mjs hydrate-descriptors",
+    "backfill:embeddings": "node scripts/backfill.mjs hydrate-embeddings",
     "backfill:tracks": "node scripts/backfill.mjs hydrate-tracks",
     "backfill:lastfm": "node scripts/backfill.mjs hydrate-lastfm",
     "backfill:moods": "node scripts/backfill.mjs hydrate-moods"
