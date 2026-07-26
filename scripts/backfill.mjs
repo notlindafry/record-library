@@ -20,7 +20,13 @@
  * Reads no files and prints only counts and the target path — never the secret.
  */
 
-const KNOWN_CRONS = new Set(["hydrate-descriptors", "hydrate-tracks", "hydrate-lastfm", "hydrate-moods"]);
+const KNOWN_CRONS = new Set([
+  "hydrate-descriptors",
+  "hydrate-embeddings",
+  "hydrate-tracks",
+  "hydrate-lastfm",
+  "hydrate-moods",
+]);
 
 const SLEEP_MS = 2_000; // polite gap between successful runs
 const RATE_LIMIT_SLEEP_MS = 15_000; // back off when a cron reports it was rate limited

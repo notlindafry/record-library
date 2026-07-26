@@ -23,12 +23,17 @@ import { normArtist } from "@/lib/lastfm";
 import { isRedisConfigured, redis } from "@/lib/redis";
 import { songSearch } from "@/lib/tracks";
 import { getDescriptorIndex } from "@/lib/descriptors";
+import { embedQuery, getEmbeddingIndex } from "@/lib/embeddings";
 
 const MAX_QUERY_LEN = 300;
 // Weight of a Last.fm sonic match: a strong match (~1.0) scores ~2.5, edging just
 // past a single shared Discogs style (2). A starting point, like VIBE_TO_STYLE.
 const SIMILAR_WEIGHT = 2.5;
-const CANDIDATE_LIMIT = 60; // records handed to the rerank step
+// Records handed to the rerank step. Cut from 60 to 30 now that semantic recall
+// tightens prefilter precision: a smaller, better candidate set keeps the
+// rerank token cost down. If 30 measurably degrades results, tune the semantic
+// weighting rather than raising this back up.
+const CANDIDATE_LIMIT = 30;
 const RESULT_LIMIT = 30; // results returned to the client
 const STYLE_HINT_LIMIT = 400; // cap on styles sent to the understand step
 // Weight of a query keyword found in a record's descriptor. Just below a literal
@@ -44,6 +49,14 @@ const MOOD_STYLE_WEIGHT = 1.25;
 // A record the mood index actually tagged with a query mood — a judged "this feels
 // happy", stronger than a merely style-implied match.
 const MOOD_INDEX_WEIGHT = 1.5;
+// Weight of a semantic (embedding) match. A strong match (~1.0) scores ~2.5,
+// landing just past a single shared Discogs style (2) but below an artist-name
+// hit (3): meaning-level relevance is strong recall but should not outrank a
+// literal artist match. A starting point, like VIBE_TO_STYLE and SIMILAR_WEIGHT.
+const SEMANTIC_WEIGHT = 2.5;
+// Cosine floor below which a semantic match scores nothing — noise otherwise.
+// Vectors are unit-normalized, so cosine is a plain dot product in [-1, 1].
+const SEMANTIC_FLOOR = 0.35;
 const QSPEC_VERSION = 2; // bump when the understand-step prompt changes
 const QSPEC_TTL_SECONDS = 3 * 24 * 60 * 60; // ~3 days; version+model in the key protect correctness
 
@@ -246,6 +259,7 @@ function scoreRecords(
   moodIndex?: MoodIndex | null,
   descriptors?: Map<string, string> | null,
   facetMoods: string[] = [],
+  semantic?: Map<string, number> | null,
 ): Scored[] {
   const genres = new Set(spec.genres.map(norm));
   const owners = new Set(spec.owners.map(norm));
@@ -270,14 +284,22 @@ function scoreRecords(
   // even when there is no API key or hydrated data at all.
   const moodStyles = new Set(softMoods.length ? expandMoodsToStyles(softMoods, records).map(norm) : []);
 
-  // Genre / style / artist / keyword / soft-mood are scored as an OR pool; only
-  // explicitly-picked mood facets act as a hard AND filter.
+  // Semantic recall is a content constraint too: a record can qualify on its
+  // embedding match ALONE, even when the understand step produced no keywords,
+  // genres, or styles (a pure-vibe query). Without this the pure-browse branch
+  // below would flatten every score to 0 and vector-only matches would never
+  // surface. This is the single easiest thing to get wrong in this change.
+  const hasSemantic = !!semantic && semantic.size > 0;
+
+  // Genre / style / artist / keyword / soft-mood / semantic are scored as an OR
+  // pool; only explicitly-picked mood facets act as a hard AND filter.
   const hasContentConstraint =
     genres.size > 0 ||
     explicitStyles.length > 0 ||
     artists.length > 0 ||
     keywords.length > 0 ||
-    softMoods.length > 0;
+    softMoods.length > 0 ||
+    hasSemantic;
   const hasAnyConstraint = hasContentConstraint || hasHardMood;
 
   const scored: Scored[] = [];
@@ -315,6 +337,14 @@ function scoreRecords(
     if (descriptors) {
       const descriptor = descriptors.get(record.id)?.toLowerCase();
       if (descriptor) for (const k of keywords) if (descriptor.includes(k)) score += DESCRIPTOR_WEIGHT;
+    }
+    // Semantic match: cosine of the query and this record's embedding, already
+    // floored at SEMANTIC_FLOOR by the caller. This is what lets a record qualify
+    // on MEANING when its wording never appears lexically. Additive, so a record
+    // that also hits lexically outscores one that hits only semantically.
+    if (semantic) {
+      const cosine = semantic.get(record.id);
+      if (cosine) score += SEMANTIC_WEIGHT * cosine;
     }
     // Soft-mood recall: score a record whose style is implied by the vibe, and
     // more so when the mood index actually judged the record to carry that mood.
@@ -490,6 +520,32 @@ function extractSongTerm(query: string): string | null {
   return null;
 }
 
+/**
+ * Cosine of the query vector against every distinct record's embedding, keeping
+ * only matches at or above SEMANTIC_FLOOR. Vectors are unit-normalized, so cosine
+ * is a plain dot product. Empty when there is no query vector or no index —
+ * semantic recall then contributes nothing and search stays fully lexical.
+ */
+function semanticScores(
+  queryVec: Float32Array | null,
+  index: Map<string, Float32Array>,
+  records: ShelfRecord[],
+): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!queryVec || index.size === 0) return out;
+  const seen = new Set<string>();
+  for (const record of records) {
+    if (seen.has(record.id)) continue;
+    seen.add(record.id);
+    const vec = index.get(record.id);
+    if (!vec || vec.length !== queryVec.length) continue;
+    let dot = 0;
+    for (let i = 0; i < queryVec.length; i++) dot += queryVec[i] * vec[i];
+    if (dot >= SEMANTIC_FLOOR) out.set(record.id, dot);
+  }
+  return out;
+}
+
 export async function searchRecords(
   rawQuery: string,
   records: ShelfRecord[],
@@ -541,16 +597,26 @@ export async function searchRecords(
     return { results: [], spec, reranked: false };
   }
 
-  // Load the per-release descriptor index so the prefilter can match on subject
-  // matter and the rerank step can read it. Fails open to an empty map — search
-  // still runs on tags and titles — and logs server-side on a read error.
+  // For a natural-language query, load three read-path inputs in parallel:
+  //   - the descriptor index (lexical subject-matter matching + the rerank read),
+  //   - the embedding index and the embedded query vector (semantic recall).
+  // Every read fails open: a missing descriptor index, an unconfigured/erroring
+  // Gemini, or an unconfigured Redis each degrades to the prior behavior, and
+  // search still runs on tags and titles. Errors are logged server-side; nothing
+  // about a provider ever reaches the client.
   let descriptors: Map<string, string> = new Map();
+  let semantic: Map<string, number> | null = null;
   if (query) {
-    try {
-      descriptors = await getDescriptorIndex(records);
-    } catch (err) {
-      console.error("[search] descriptor read failed:", err instanceof Error ? err.message : err);
-    }
+    const [descResult, embeddingIndex, queryVec] = await Promise.all([
+      getDescriptorIndex(records).catch((err) => {
+        console.error("[search] descriptor read failed:", err instanceof Error ? err.message : err);
+        return new Map<string, string>();
+      }),
+      getEmbeddingIndex(records), // fails open to an empty map internally
+      embedQuery(query), // fails open to null internally
+    ]);
+    descriptors = descResult;
+    semantic = semanticScores(queryVec, embeddingIndex, records);
   }
 
   // Prefilter + score. When moods are in play, classify (or reuse cached) moods
@@ -558,7 +624,7 @@ export async function searchRecords(
   // Claude's per-record tags. Only moods picked from the facet act as a hard
   // filter; moods inferred from the query broaden results instead.
   const moodIndex = spec.moods.length > 0 ? await getMoodIndex(records) : null;
-  const scored = scoreRecords(spec, records, moodIndex, descriptors, options.moods ?? []);
+  const scored = scoreRecords(spec, records, moodIndex, descriptors, options.moods ?? [], semantic);
   const candidates = scored.slice(0, CANDIDATE_LIMIT).map((s) => s.record);
 
   if (candidates.length === 0) {

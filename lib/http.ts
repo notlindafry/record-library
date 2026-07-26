@@ -24,13 +24,19 @@ export interface FetchJsonOptions {
   /** Abort the request after this many milliseconds. */
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** HTTP method; defaults to GET. */
+  method?: string;
+  /** Serialized request body (e.g. JSON.stringify(...)); set content-type in headers. */
+  body?: string;
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 /**
  * Fetch a URL over HTTPS and parse the body as JSON. Only https:// is allowed
- * (rule 6); an http:// URL throws before any request is made.
+ * (rule 6); an http:// URL throws before any request is made. Defaults to GET;
+ * pass `method`/`body` for a POST (the credential must go in a header, never the
+ * URL, so it is never logged).
  */
 export async function fetchJson<T = unknown>(
   url: string,
@@ -55,7 +61,9 @@ export async function fetchJson<T = unknown>(
   let response: Response;
   try {
     response = await fetch(url, {
+      method: options.method,
       headers: options.headers,
+      body: options.body,
       signal: controller.signal,
       // Data is fetched fresh server-side and cached in-process; don't let the
       // platform layer add its own caching semantics.

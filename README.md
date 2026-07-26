@@ -97,11 +97,11 @@ Wired from the current Discogs API docs/forum:
   access control** — whoever logs in sees both shelves; the owner filter only
   changes the view. That is intended for a shared household shelf.
 - **Rate limiting:** per-IP limits on `/api/login` (~5/min, with lockout) and
-  `/api/search` (~30/min). **Tradeoff:** the limiter is in-memory and best-effort
-  per serverless instance — it resets on cold starts and is not global. For strict
-  global limits, back it with Upstash Redis (env vars in `.env.example`).
-  **# SECURITY TODO:** Upstash-backed global rate limiting is not wired; see
-  `lib/ratelimit.ts`.
+  `/api/search` (~30/min). When Upstash Redis is configured these are enforced
+  **globally** across serverless instances and cold starts (`@upstash/ratelimit`,
+  sliding window). With Redis absent — or on a Redis error — the limiter falls
+  back to a best-effort in-memory window per instance, so protection degrades
+  rather than disappearing. See `lib/ratelimit.ts`.
 - **Headers/CSP:** HSTS, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
   a referrer policy, a permissions policy, and a per-request nonce-based CSP — all
   applied in `proxy.ts`.
