@@ -96,3 +96,92 @@ export function expandMoodsToStyles(moods: string[], records: ShelfRecord[]): st
 export function availableMoods(records: ShelfRecord[]): string[] {
   return MOODS.filter((mood) => expandMoodsToStyles([mood], records).length > 0);
 }
+
+// ---- Precise metal subgenres ----
+
+/**
+ * Styles whose name marks a metal subgenre. Black metal, death metal, and
+ * technical death metal are distinct genres to the people who own these
+ * records, so when one is named in a free-text query it is treated as an exact
+ * requirement rather than a loose hint (see `requiredSubgenres`).
+ *
+ * Scoped to metal on purpose: a literal style match is ambiguous for words like
+ * "house" ("music for a house party") or "soul", so applying the same hard
+ * filter to every style would wrongly narrow ordinary vibe queries.
+ */
+const METAL_STYLE = /\bmetal\b|^(?:grindcore|deathcore|metalcore|thrash|sludge|powerviolence)$/i;
+
+export function isMetalSubgenre(style: string): boolean {
+  return METAL_STYLE.test(style.trim());
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// A negation shortly before a style name ("no black metal", "anything but
+// death metal") means the style is excluded, not required.
+const NEGATION_BEFORE = /\b(?:no|not|without|except|minus|excluding|but)\s+(?:\w+\s+){0,2}$/i;
+
+export interface LiteralMatch {
+  value: string;
+  /** True when a negation ("no", "without", "but") shortly precedes the match. */
+  negated: boolean;
+}
+
+/**
+ * Tag names (genres or styles) that appear literally in the query, as
+ * canonical names. Matching is longest-first on whole words, and a matched span
+ * is claimed so a shorter tag cannot also match inside it: "technical death
+ * metal" yields only "Technical Death Metal" (when that style exists), never
+ * also "Death Metal".
+ */
+export function literalMatches(query: string, values: string[]): LiteralMatch[] {
+  const lower = query.toLowerCase();
+  const claimed: Array<[number, number]> = [];
+  const out = new Map<string, LiteralMatch>();
+  const candidates = [...values].sort((a, b) => b.length - a.length);
+
+  for (const value of candidates) {
+    const key = norm(value);
+    if (!key) continue;
+    const re = new RegExp(`(?<![a-z0-9])${escapeRegExp(key)}(?![a-z0-9])`, "g");
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(lower)) !== null) {
+      const start = m.index;
+      const end = start + m[0].length;
+      if (claimed.some(([s, e]) => start < e && end > s)) continue;
+      claimed.push([start, end]);
+      const negated = NEGATION_BEFORE.test(lower.slice(0, start));
+      const prev = out.get(value);
+      // A tag named both positively and negatively counts as positive.
+      out.set(value, { value, negated: prev ? prev.negated && negated : negated });
+    }
+  }
+  return Array.from(out.values());
+}
+
+/**
+ * Metal subgenre styles (present in the collection) that the query names
+ * literally and does not negate. These become a hard filter in search.
+ */
+export function requiredSubgenres(query: string, styles: string[]): string[] {
+  return literalMatches(query, styles)
+    .filter((m) => !m.negated && isMetalSubgenre(m.value))
+    .map((m) => m.value);
+}
+
+/**
+ * Whether a record satisfies a required subgenre. A record qualifies when it
+ * carries the style itself or a more specific style ending in it, so a
+ * "death metal" query includes "Technical Death Metal" and "Melodic Death
+ * Metal" records, while a "technical death metal" query does NOT include plain
+ * "Death Metal" records, and "black metal" never matches "death metal".
+ */
+export function hasSubgenre(recordStyles: string[], required: string): boolean {
+  const want = norm(required);
+  return recordStyles.some((s) => {
+    const have = norm(s);
+    return have === want || have.endsWith(` ${want}`);
+  });
+}

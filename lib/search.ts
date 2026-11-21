@@ -17,7 +17,16 @@
 import { createHash } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import type { QuerySpec, Record as ShelfRecord, SearchResult } from "@/lib/types";
-import { MOODS, expandMoodsToStyles, presentGenres, presentOwners, presentStyles } from "@/lib/vocab";
+import {
+  MOODS,
+  expandMoodsToStyles,
+  hasSubgenre,
+  literalMatches,
+  presentGenres,
+  presentOwners,
+  presentStyles,
+  requiredSubgenres,
+} from "@/lib/vocab";
 import { getMoodIndex, type MoodIndex } from "@/lib/moods";
 import { normArtist } from "@/lib/lastfm";
 import { isRedisConfigured, redis } from "@/lib/redis";
@@ -57,7 +66,7 @@ const SEMANTIC_WEIGHT = 2.5;
 // Cosine floor below which a semantic match scores nothing — noise otherwise.
 // Vectors are unit-normalized, so cosine is a plain dot product in [-1, 1].
 const SEMANTIC_FLOOR = 0.35;
-const QSPEC_VERSION = 2; // bump when the understand-step prompt changes
+const QSPEC_VERSION = 3; // bump when the understand-step prompt changes (v3: precise metal subgenres)
 const QSPEC_TTL_SECONDS = 3 * 24 * 60 * 60; // ~3 days; version+model in the key protect correctness
 
 function model(): string {
@@ -119,6 +128,7 @@ function buildUnderstandSystem(records: ShelfRecord[]): string {
     "- Put artist names in `artists` and any remaining free-text terms (album titles, words) in `keywords`.",
     "- Keep salient topic/subject words in `keywords` even when they ALSO map to a mood, genre, or style, and even when they map to none. Subject matter is searchable via per-record descriptors, so these words matter. E.g. 'mad at the government' -> moods: [\"angry\"], keywords: [\"government\"]; 'songs about heartbreak' -> keywords: [\"heartbreak\"]; 'music for a rainy drive' -> keywords: [\"rain\"].",
     "- Use `excludeStyles` for explicit negations (e.g. 'but no metal').",
+    "- Metal subgenres are distinct and must not be blurred. 'Death metal' maps to Death Metal (and styles that are kinds of death metal, e.g. Technical Death Metal, Melodic Death Metal), never to Black Metal. 'Black metal' never maps to Death Metal. 'Technical death metal' maps to Technical Death Metal only, not to plain Death Metal. Never add a sibling metal subgenre the request did not name.",
     "- Leave arrays empty when nothing applies. Do not guess wildly; an empty spec is fine for a vague query.",
     "",
     "Respond with ONLY a JSON object (no prose, no markdown) with these array-of-string keys:",
@@ -235,9 +245,16 @@ function understandWithKeywords(query: string, records: ShelfRecord[]): QuerySpe
 
   const spec = emptySpec();
 
-  // Multi-word genre/style names: substring match against the whole query.
-  for (const [key, value] of genreSet) if (lower.includes(key)) spec.genres.push(value);
-  for (const [key, value] of styleSet) if (lower.includes(key)) spec.styles.push(value);
+  // Genre/style names: whole-word, longest-first match against the whole query,
+  // so "technical death metal" picks Technical Death Metal without also picking
+  // the shorter Death Metal inside it. Negated names become exclusions.
+  for (const m of literalMatches(query, Array.from(genreSet.values()))) {
+    if (!m.negated) spec.genres.push(m.value);
+  }
+  for (const m of literalMatches(query, Array.from(styleSet.values()))) {
+    if (m.negated) (spec.excludeStyles ??= []).push(m.value);
+    else spec.styles.push(m.value);
+  }
   for (const [key, value] of ownerSet) if (tokenSet.has(key) || lower.includes(key)) spec.owners.push(value);
   for (const mood of MOODS) if (tokenSet.has(mood)) spec.moods.push(mood);
 
@@ -260,6 +277,7 @@ function scoreRecords(
   descriptors?: Map<string, string> | null,
   facetMoods: string[] = [],
   semantic?: Map<string, number> | null,
+  requiredStyles: string[] = [],
 ): Scored[] {
   const genres = new Set(spec.genres.map(norm));
   const owners = new Set(spec.owners.map(norm));
@@ -312,6 +330,11 @@ function scoreRecords(
     // Hard filter: excluded styles.
     if (excludeStyles.size > 0 && recStyles.some((s) => excludeStyles.has(s))) continue;
 
+    // Hard filter: metal subgenres named in the query (OR across them). A record
+    // that is not tagged with the named subgenre cannot sneak in on a semantic
+    // or descriptor match (e.g. a black metal record for "death metal").
+    if (requiredStyles.length > 0 && !requiredStyles.some((req) => hasSubgenre(record.styles, req))) continue;
+
     // Hard filter: mood FACETS (AND) — the record must be tagged with every
     // explicitly-selected mood.
     const recMoods = moodIndex ? moodIndex.get(record) : null;
@@ -329,6 +352,11 @@ function scoreRecords(
 
     for (const g of recGenres) if (genres.has(g)) score += 1.5;
     for (const s of recStyles) if (explicitStyles.includes(s)) score += 2;
+    // A required subgenre satisfied by a more specific style (a Technical Death
+    // Metal record for "death metal") scores just below an exact tag match.
+    for (const req of requiredStyles) {
+      if (!recStyles.includes(norm(req)) && hasSubgenre(record.styles, req)) score += 1.75;
+    }
     for (const a of artists) if (haystack.includes(a)) score += 3;
     for (const k of keywords) if (haystack.includes(k)) score += 1;
     // Subject-matter match: a query keyword found in the record's descriptor.
@@ -405,6 +433,7 @@ async function rerankWithClaude(
     "For each, write a short one-line reason (max ~16 words) tying it to the request — mention genre/style/mood/owner where relevant.",
     "Some candidates include a `descriptor`: a short vibe/subject summary of the release. Use it to judge fit and to write the one-line reason (name the actual theme when it matches), but treat it as a search aid, not an authoritative fact — do not quote it as a claim about the artist.",
     "Only include records that genuinely fit. Do not invent ids. Return at most 30.",
+    "Treat metal subgenres as distinct: black metal is not death metal, and technical death metal is a specific kind of death metal. When the request names a subgenre, judge fit by the candidate's `styles`, and describe each record by the styles it actually carries, never by a neighbouring subgenre.",
     "",
     'Respond with ONLY a JSON object (no prose, no markdown): {"results": [{"id": "<id>", "reason": "<one line>"}]}.',
   ].join("\n");
@@ -592,6 +621,14 @@ export async function searchRecords(
 
   spec = mergeFacets(spec, options);
 
+  // Metal subgenres named literally in the query are exact requirements. They
+  // are derived from the query text itself, not from the understand step, so a
+  // loose parse (or a cached one) cannot widen "death metal" to black metal.
+  const requiredStyles = query ? requiredSubgenres(query, presentStyles(records)) : [];
+  if (requiredStyles.length > 0) {
+    spec = { ...spec, styles: Array.from(new Set([...spec.styles, ...requiredStyles])) };
+  }
+
   // Nothing to search on at all → return an empty, deterministic result.
   if (!query && !hasFacets) {
     return { results: [], spec, reranked: false };
@@ -624,7 +661,15 @@ export async function searchRecords(
   // Claude's per-record tags. Only moods picked from the facet act as a hard
   // filter; moods inferred from the query broaden results instead.
   const moodIndex = spec.moods.length > 0 ? await getMoodIndex(records) : null;
-  const scored = scoreRecords(spec, records, moodIndex, descriptors, options.moods ?? [], semantic);
+  const scored = scoreRecords(
+    spec,
+    records,
+    moodIndex,
+    descriptors,
+    options.moods ?? [],
+    semantic,
+    requiredStyles,
+  );
   const candidates = scored.slice(0, CANDIDATE_LIMIT).map((s) => s.record);
 
   if (candidates.length === 0) {
